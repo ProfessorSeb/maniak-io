@@ -1,6 +1,9 @@
 <header class="site-header">
   <div class="header-inner">
-    <a href="{{ "/" | relURL }}" class="site-title">{{ .Site.Title }}</a>
+    <a href="{{ "/" | relURL }}" class="site-brand">
+      <img src="https://avatars.githubusercontent.com/u/1268277?v=4" alt="{{ .Site.Params.author }}" class="header-avatar">
+      <span class="site-title">{{ .Site.Title }}</span>
+    </a>
     <button class="nav-toggle" aria-label="Toggle navigation">
       <span></span>
       <span></span>
