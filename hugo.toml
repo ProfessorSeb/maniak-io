@@ -1,6 +1,6 @@
 baseURL = "https://professorseb.com/"
 languageCode = "en-us"
-title = "Professor Seb"
+title = "Sebastian Maniak"
 theme = "bond"
 
 [params]
