@@ -1,0 +1,31 @@
+---
+title: "About"
+description: "Technology Evangelist. Advisor. Architect."
+layout: "about"
+---
+
+Sebastian Maniak is a Technology Evangelist, Advisor, Architect, and Content Creator with over 20 years of experience in security and automation.
+
+## What I Do
+
+**Professor** at Sheridan College, teaching Applied Network Security and Infrastructure as Code.
+
+**CEO** at Maniak Ventures Inc.
+
+**Consultant & Content Creator** partnering with F5, HashiCorp, Fortinet, and other technology leaders — delivering consulting, advisory services, public speaking, training, blogs, videos, whitepapers, and webinars.
+
+## Recognition
+
+- 2024 HashiCorp Ambassador
+- 2024 F5 DevCentral MVP
+
+## Expertise
+
+I build, secure, and automate infrastructure. My work spans F5, Fortinet, Palo Alto, HashiCorp Vault, Terraform, Boundary, AWS, Azure, Kubernetes, and GCP.
+
+## Connect
+
+- [YouTube](https://www.youtube.com/@professorseb)
+- [X / Twitter](https://x.com/sebbycorp)
+- [LinkedIn](https://www.linkedin.com/in/maniakseb)
+- [GitHub](https://github.com/ProfessorSeb)
