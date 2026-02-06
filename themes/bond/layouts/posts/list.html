@@ -1,0 +1,24 @@
+{{ define "main" }}
+<div class="section-header">
+  <h2>Posts</h2>
+  <p>Latest from X / Twitter &mdash; @sebbycorp</p>
+</div>
+
+<div class="posts-section">
+  <div class="embed-container">
+    <a class="twitter-timeline"
+       data-theme="dark"
+       data-chrome="noheader nofooter noborders transparent"
+       data-height="800"
+       href="https://twitter.com/sebbycorp">
+      Posts by @sebbycorp
+    </a>
+    <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+  </div>
+  <div style="text-align: center; margin-top: 2rem;">
+    <a href="https://x.com/SebbyCorp/articles" target="_blank" rel="noopener" class="channel-link">
+      View Articles on X
+    </a>
+  </div>
+</div>
+{{ end }}

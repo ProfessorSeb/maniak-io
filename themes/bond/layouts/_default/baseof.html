@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="{{ .Site.LanguageCode }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ if not .IsHome }}{{ .Title }} | {{ end }}{{ .Site.Title }}</title>
+  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
+</head>
+<body>
+  {{ partial "header.html" . }}
+
+  <main class="site-main">
+    {{ block "main" . }}{{ end }}
+  </main>
+
+  {{ partial "footer.html" . }}
+
+  <script>
+    // Mobile nav toggle
+    document.addEventListener('DOMContentLoaded', function() {
+      const toggle = document.querySelector('.nav-toggle');
+      const nav = document.querySelector('.site-nav');
+      if (toggle && nav) {
+        toggle.addEventListener('click', function() {
+          nav.classList.toggle('open');
+        });
+      }
+    });
+  </script>
+</body>
+</html>

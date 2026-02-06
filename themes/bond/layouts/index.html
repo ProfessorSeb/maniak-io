@@ -1,0 +1,78 @@
+{{ define "main" }}
+<section class="hero">
+  <h1>{{ .Site.Title }}</h1>
+  <div class="divider"></div>
+  <p class="tagline">{{ .Site.Params.description }}</p>
+</section>
+
+<!-- Latest Articles -->
+<section class="home-section">
+  <div class="section-header">
+    <h2>Latest Articles</h2>
+    <p>Insights, analysis, and deep dives</p>
+  </div>
+  <div class="articles-grid">
+    {{ range first 3 (where .Site.RegularPages "Section" "articles") }}
+    <div class="article-card">
+      <a href="{{ .Permalink }}">
+        <div class="meta">{{ .Date.Format "02 Jan 2006" }}</div>
+        <h3>{{ .Title }}</h3>
+        <p class="summary">{{ .Summary | truncate 150 }}</p>
+        <span class="read-more">Read more</span>
+      </a>
+    </div>
+    {{ end }}
+  </div>
+  <a href="{{ "articles/" | relURL }}" class="section-link">All Articles</a>
+</section>
+
+<!-- YouTube -->
+<section class="home-section">
+  <div class="section-header">
+    <h2>YouTube</h2>
+    <p>Latest videos and live streams</p>
+  </div>
+  <div class="video-container">
+    <iframe
+      src="https://www.youtube.com/embed/videoseries?list=UUAP1CQwTOLlplBAODlmF2Vw"
+      title="Latest YouTube Video"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen>
+    </iframe>
+  </div>
+  <a href="{{ "youtube/" | relURL }}" class="section-link">View Channel</a>
+</section>
+
+<!-- Social Feeds -->
+<section class="home-section social-feed">
+  <div class="section-header">
+    <h2>Social</h2>
+    <p>Latest from X and LinkedIn</p>
+  </div>
+  <div class="social-grid">
+    <div class="feed-column">
+      <h3>X / Twitter</h3>
+      <div class="feed-embed twitter-embed-wrapper">
+        <a class="twitter-timeline"
+           data-theme="dark"
+           data-chrome="noheader nofooter noborders transparent"
+           href="https://twitter.com/sebbycorp">
+          Posts by @sebbycorp
+        </a>
+        <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+      </div>
+    </div>
+    <div class="feed-column">
+      <h3>Connect</h3>
+      <div class="feed-embed" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 3rem 1.5rem;">
+        <p style="color: var(--grey-light); margin-bottom: 1.5rem; font-size: 0.95rem;">Follow the conversation across platforms</p>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <a href="https://x.com/SebbyCorp/articles" target="_blank" rel="noopener" class="channel-link">Articles on X</a>
+          <a href="https://x.com/sebbycorp" target="_blank" rel="noopener" class="channel-link">Follow on X</a>
+          <a href="{{ .Site.Params.youtubeChannel }}" target="_blank" rel="noopener" class="channel-link">Subscribe on YouTube</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{{ end }}

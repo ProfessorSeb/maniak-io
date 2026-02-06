@@ -1,0 +1,10 @@
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="{{ .Site.Params.youtubeChannel }}" target="_blank" rel="noopener">YouTube</a>
+      <a href="https://x.com/{{ .Site.Params.twitterHandle }}" target="_blank" rel="noopener">X / Twitter</a>
+      {{ with .Site.Params.linkedinURL }}<a href="{{ . }}" target="_blank" rel="noopener">LinkedIn</a>{{ end }}
+    </div>
+    <p class="footer-copy">&copy; {{ now.Year }} {{ .Site.Title }}. All rights reserved.</p>
+  </div>
+</footer>

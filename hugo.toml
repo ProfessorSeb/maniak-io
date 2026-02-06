@@ -1,0 +1,36 @@
+baseURL = "https://professorseb.com/"
+languageCode = "en-us"
+title = "Professor Seb"
+theme = "bond"
+
+[params]
+  description = "Technology. Strategy. Intelligence."
+  author = "Professor Seb"
+  youtubeChannel = "https://www.youtube.com/@professorseb"
+  twitterHandle = "sebbycorp"
+
+[menu]
+  [[menu.main]]
+    name = "Home"
+    url = "/"
+    weight = 1
+  [[menu.main]]
+    name = "Articles"
+    url = "/articles/"
+    weight = 2
+  [[menu.main]]
+    name = "YouTube"
+    url = "/youtube/"
+    weight = 3
+  [[menu.main]]
+    name = "Posts"
+    url = "/posts/"
+    weight = 4
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+
+[outputs]
+  home = ["HTML"]

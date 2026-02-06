@@ -1,0 +1,40 @@
+{{ define "main" }}
+<div class="section-header">
+  <h2>YouTube</h2>
+  <p>Videos, live streams, and more from the channel</p>
+</div>
+
+<div class="youtube-section">
+
+  <div class="youtube-embed-wrapper">
+    <h3>Latest from the Channel</h3>
+    <div class="video-container">
+      <iframe
+        src="https://www.youtube.com/embed/videoseries?list=UUAP1CQwTOLlplBAODlmF2Vw"
+        title="Latest YouTube Video"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="youtube-embed-wrapper">
+    <h3>Live Streams</h3>
+    <div class="video-container">
+      <iframe
+        src="https://www.youtube.com/embed/live_stream?channel=UCAP1CQwTOLlplBAODlmF2Vw"
+        title="Live Stream"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <p style="margin-top: 2rem;">
+    <a href="{{ .Site.Params.youtubeChannel }}" target="_blank" rel="noopener" class="channel-link">
+      Visit Full Channel
+    </a>
+  </p>
+
+</div>
+{{ end }}

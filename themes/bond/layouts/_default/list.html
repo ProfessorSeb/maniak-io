@@ -1,0 +1,18 @@
+{{ define "main" }}
+<div class="section-header">
+  <h2>{{ .Title }}</h2>
+  {{ with .Description }}<p>{{ . }}</p>{{ end }}
+</div>
+<div class="articles-grid">
+  {{ range .Pages }}
+  <div class="article-card">
+    <a href="{{ .Permalink }}">
+      <div class="meta">{{ .Date.Format "02 Jan 2006" }}</div>
+      <h3>{{ .Title }}</h3>
+      <p class="summary">{{ .Summary | truncate 150 }}</p>
+      <span class="read-more">Read more</span>
+    </a>
+  </div>
+  {{ end }}
+</div>
+{{ end }}
