@@ -1,0 +1,17 @@
+{{ define "main" }}
+<section class="about-page">
+  <div class="about-hero">
+    <div class="about-photo">
+      <img src="https://avatars.githubusercontent.com/u/1268277?v=4" alt="{{ .Site.Params.author }}">
+    </div>
+    <div class="about-intro">
+      <h1>{{ .Site.Params.author }}</h1>
+      <div class="divider"></div>
+      <p class="about-tagline">{{ .Description }}</p>
+    </div>
+  </div>
+  <div class="about-content">
+    {{ .Content }}
+  </div>
+</section>
+{{ end }}
