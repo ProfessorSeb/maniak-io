@@ -1,8 +1,17 @@
 {{ define "main" }}
 <section class="hero">
-  <h1>{{ .Site.Title }}</h1>
-  <div class="divider"></div>
-  <p class="tagline">{{ .Site.Params.description }}</p>
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <div class="hero-photo">
+      <img src="https://avatars.githubusercontent.com/u/1268277?v=4" alt="{{ .Site.Params.author }}">
+    </div>
+    <div class="hero-text">
+      <div class="hero-handle">youtube.com/@sebbycorp</div>
+      <h1>Sebastian<br>Maniak</h1>
+      <div class="hero-line"></div>
+      <p class="tagline">{{ .Site.Params.description }}</p>
+    </div>
+  </div>
 </section>
 
 <!-- Latest Articles -->
@@ -64,12 +73,13 @@
     </div>
     <div class="feed-column">
       <h3>Connect</h3>
-      <div class="feed-embed" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 3rem 1.5rem;">
-        <p style="color: var(--grey-light); margin-bottom: 1.5rem; font-size: 0.95rem;">Follow the conversation across platforms</p>
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
+      <div class="feed-embed connect-panel">
+        <p>Follow the conversation across platforms</p>
+        <div class="connect-links">
           <a href="https://x.com/SebbyCorp/articles" target="_blank" rel="noopener" class="channel-link">Articles on X</a>
           <a href="https://x.com/sebbycorp" target="_blank" rel="noopener" class="channel-link">Follow on X</a>
           <a href="{{ .Site.Params.youtubeChannel }}" target="_blank" rel="noopener" class="channel-link">Subscribe on YouTube</a>
+          <a href="{{ .Site.Params.linkedinURL }}" target="_blank" rel="noopener" class="channel-link">LinkedIn</a>
         </div>
       </div>
     </div>
