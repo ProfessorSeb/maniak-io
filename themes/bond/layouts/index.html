@@ -1,27 +1,11 @@
 {{ define "main" }}
-<section class="hero">
-  <div class="hero-bg"></div>
-  <div class="hero-content">
-    <div class="hero-photo">
-      <img src="https://avatars.githubusercontent.com/u/1268277?v=4" alt="{{ .Site.Params.author }}">
-    </div>
-    <div class="hero-text">
-      <div class="hero-handle">youtube.com/@sebbycorp</div>
-      <h1>Sebastian<br>Maniak</h1>
-      <div class="hero-line"></div>
-      <p class="tagline">{{ .Site.Params.description }}</p>
-    </div>
-  </div>
-</section>
-
-<!-- Latest Articles -->
-<section class="home-section">
+<!-- Articles -->
+<section class="home-section first-section">
   <div class="section-header">
-    <h2>Latest Articles</h2>
-    <p>Insights, analysis, and deep dives</p>
+    <h2>Articles</h2>
   </div>
   <div class="articles-grid">
-    {{ range first 3 (where .Site.RegularPages "Section" "articles") }}
+    {{ range (where .Site.RegularPages "Section" "articles") }}
     <div class="article-card">
       <a href="{{ .Permalink }}">
         <div class="meta">{{ .Date.Format "02 Jan 2006" }}</div>
@@ -32,7 +16,6 @@
     </div>
     {{ end }}
   </div>
-  <a href="{{ "articles/" | relURL }}" class="section-link">All Articles</a>
 </section>
 
 <!-- YouTube -->
