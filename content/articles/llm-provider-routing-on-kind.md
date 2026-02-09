@@ -1,6 +1,6 @@
 ---
 title: "Getting Started with LLM Provider Routing on Kind"
-date: 2025-07-15
+date: 2026-02-15
 description: "Set up agentgateway OSS on a local Kind cluster with xAI, Anthropic, and OpenAI backends routed through a single gateway using the Kubernetes Gateway API"
 ---
 
