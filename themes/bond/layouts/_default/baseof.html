@@ -9,6 +9,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
+  <script>
+    (function() {
+      var theme = localStorage.getItem('theme');
+      if (theme) document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
 </head>
 <body>
   {{ partial "header.html" . }}
@@ -21,11 +27,26 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      const toggle = document.querySelector('.nav-toggle');
-      const nav = document.querySelector('.site-nav');
+      var toggle = document.querySelector('.nav-toggle');
+      var nav = document.querySelector('.site-nav');
       if (toggle && nav) {
         toggle.addEventListener('click', function() {
           nav.classList.toggle('open');
+        });
+      }
+
+      var themeToggle = document.querySelector('.theme-toggle');
+      if (themeToggle) {
+        themeToggle.addEventListener('click', function() {
+          var current = document.documentElement.getAttribute('data-theme');
+          var next = current === 'light' ? 'dark' : 'light';
+          if (next === 'dark') {
+            document.documentElement.removeAttribute('data-theme');
+            localStorage.removeItem('theme');
+          } else {
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+          }
         });
       }
     });
