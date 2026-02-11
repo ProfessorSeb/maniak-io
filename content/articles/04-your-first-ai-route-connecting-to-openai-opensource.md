@@ -146,6 +146,7 @@ spec:
   ai:
     provider:
       openai:
+        model: gpt-3.5-turbo 
         # Use default OpenAI endpoint (api.openai.com)
         # Optionally specify config like:
         # config:
