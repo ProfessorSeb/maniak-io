@@ -23,10 +23,124 @@ In this guide, we'll create your first production-ready route to OpenAI, impleme
 
 ## Prerequisites
 
-- Completed previous blog posts (AgentGateway setup, observability, mock environment)
+- Docker installed and running
+- kubectl CLI tool
+- Helm 3.x installed  
 - Valid OpenAI API Key with credits (get from [OpenAI Platform](https://platform.openai.com))
-- Kind cluster with AgentGateway and monitoring running
-- Basic understanding of OpenAI API structure
+- Basic understanding of Kubernetes and OpenAI API structure
+
+## Setting Up Kind Cluster with AgentGateway
+
+If you don't have AgentGateway running yet, let's set up a complete environment from scratch.
+
+### Install Kind
+First, install kind (Kubernetes in Docker):
+
+```bash
+# On macOS using Homebrew
+brew install kind
+
+# On Linux
+[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+# Verify installation
+kind --version
+```
+
+### Create Kind Cluster
+Create a kind cluster optimized for AgentGateway:
+
+```bash
+cat <<EOF > kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agentgateway-cluster
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 8080
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 8443
+    protocol: TCP
+- role: worker
+  labels:
+    role: worker
+EOF
+
+# Create the cluster
+kind create cluster --config kind-config.yaml
+
+# Verify cluster is ready
+kubectl cluster-info --context kind-agentgateway-cluster
+kubectl get nodes
+```
+
+### Install Gateway API CRDs
+AgentGateway uses the Kubernetes Gateway API, so we need to install the CRDs:
+
+```bash
+# Install Gateway API CRDs (standard version)
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+
+# Verify Gateway API resources are installed
+kubectl api-resources | grep gateway
+```
+
+### Install Open Source AgentGateway
+Now let's install the open source version of AgentGateway:
+
+```bash
+# Install AgentGateway using Helm
+helm upgrade --install agentgateway \
+  oci://ghcr.io/agentgateway-dev/helm-charts/agentgateway \
+  -n agentgateway-system \
+  --create-namespace \
+  --wait
+
+# Verify installation
+kubectl get pods -n agentgateway-system
+kubectl get gateways -n agentgateway-system
+kubectl get gatewayclass
+```
+
+Expected output:
+```
+NAME                          READY   STATUS    RESTARTS   AGE
+agentgateway-7d4b8f9c5-abcd1   1/1     Running   0          2m
+agentgateway-7d4b8f9c5-efgh2   1/1     Running   0          2m
+
+NAME           CLASS         ADDRESS   PROGRAMMED   AGE
+agentgateway   agentgateway            True         2m
+
+NAME           CONTROLLER               ACCEPTED   AGE
+agentgateway   agentgateway.dev/envoy   True       2m
+```
+
+### Verify AgentGateway is Working
+Let's do a quick test to ensure AgentGateway is responding:
+
+```bash
+# Port forward to access the gateway
+kubectl port-forward -n agentgateway-system svc/agentgateway 8080:8080 &
+
+# Test the gateway (should return a 404 since no routes are configured yet)
+curl -v http://localhost:8080/
+
+# Kill the port-forward
+kill %1
+```
+
+The 404 response is expected at this point since we haven't configured any routes yet.
 
 ## Environment Setup
 
