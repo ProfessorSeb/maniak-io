@@ -7,9 +7,7 @@ description: "Step-by-step guide to connecting open source AgentGateway to OpenA
 # Your First AI Route: Connecting to OpenAI with AgentGateway (Open Source)
 
 ## Introduction
-Now that you have AgentGateway running with observability and have tested with a mock environment, it's time to connect to a real AI provider. OpenAI is the perfect starting point due to its widespread adoption, comprehensive API, and excellent documentation.
-
-In this guide, we'll create your first production-ready route to OpenAI, implement proper security practices, and demonstrate the observability benefits of routing AI traffic through AgentGateway.
+This is a how-to guide to setup AgentGateway and get your first AI route working with OpenAI. We'll walk through the complete setup from scratch - creating a Kubernetes cluster, installing AgentGateway, and connecting it to OpenAI's API.
 
 ## What You'll Learn
 
@@ -34,113 +32,41 @@ In this guide, we'll create your first production-ready route to OpenAI, impleme
 If you don't have AgentGateway running yet, let's set up a complete environment from scratch.
 
 ### Install Kind
-First, install kind (Kubernetes in Docker):
-
 ```bash
-# On macOS using Homebrew
+# On macOS 
 brew install kind
 
 # On Linux
-[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
-chmod +x ./kind
-sudo mv ./kind /usr/local/bin/kind
-
-# Verify installation
-kind --version
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 ```
 
 ### Create Kind Cluster
-Create a kind cluster optimized for AgentGateway:
+Create a simple kind cluster for AgentGateway:
 
 ```bash
-cat <<EOF > kind-config.yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: agentgateway-cluster
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 8080
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 8443
-    protocol: TCP
-- role: worker
-  labels:
-    role: worker
-EOF
-
 # Create the cluster
-kind create cluster --config kind-config.yaml
+kind create cluster --name agentgateway
 
 # Verify cluster is ready
-kubectl cluster-info --context kind-agentgateway-cluster
 kubectl get nodes
 ```
 
-### Install Gateway API CRDs
-AgentGateway uses the Kubernetes Gateway API, so we need to install the CRDs:
-
+### Install Gateway API and AgentGateway
 ```bash
-# Install Gateway API CRDs (standard version)
+# Install Gateway API CRDs
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
 
-# Verify Gateway API resources are installed
-kubectl api-resources | grep gateway
-```
-
-### Install Open Source AgentGateway
-Now let's install the open source version of AgentGateway:
-
-```bash
-# Install AgentGateway using Helm
+# Install AgentGateway
 helm upgrade --install agentgateway \
   oci://ghcr.io/agentgateway-dev/helm-charts/agentgateway \
   -n agentgateway-system \
   --create-namespace \
   --wait
 
-# Verify installation
+# Check it's running
 kubectl get pods -n agentgateway-system
-kubectl get gateways -n agentgateway-system
-kubectl get gatewayclass
 ```
-
-Expected output:
-```
-NAME                          READY   STATUS    RESTARTS   AGE
-agentgateway-7d4b8f9c5-abcd1   1/1     Running   0          2m
-agentgateway-7d4b8f9c5-efgh2   1/1     Running   0          2m
-
-NAME           CLASS         ADDRESS   PROGRAMMED   AGE
-agentgateway   agentgateway            True         2m
-
-NAME           CONTROLLER               ACCEPTED   AGE
-agentgateway   agentgateway.dev/envoy   True       2m
-```
-
-### Verify AgentGateway is Working
-Let's do a quick test to ensure AgentGateway is responding:
-
-```bash
-# Port forward to access the gateway
-kubectl port-forward -n agentgateway-system svc/agentgateway 8080:8080 &
-
-# Test the gateway (should return a 404 since no routes are configured yet)
-curl -v http://localhost:8080/
-
-# Kill the port-forward
-kill %1
-```
-
-The 404 response is expected at this point since we haven't configured any routes yet.
 
 ## Environment Setup
 
