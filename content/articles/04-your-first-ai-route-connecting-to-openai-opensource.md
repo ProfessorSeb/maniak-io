@@ -152,28 +152,14 @@ spec:
         #   endpoint: "https://api.openai.com"
         #   model: "gpt-4o-mini" # Default model override
 
-  # Authentication policy using our secret
+  # Authentication and HTTP policies
   policies:
     auth:
       secretRef:
         name: openai-secret
-        # Key defaults to "Authorization" if not specified
-
-  # Optional: Configure timeout and retry policies
-  timeout:
-    request: "120s" # 2 minutes for long-running requests
-
-  # Optional: Add retry policy for resilience
-  retry:
-    attempts: 3
-    backoff:
-      baseInterval: "1s"
-      maxInterval: "10s"
-    retryOn:
-      - "5xx"
-      - "reset"
-      - "connect-failure"
-      - "refused-stream"
+        namespace: agentgateway-system
+    http:
+      requestTimeout: 120s
 EOF
 ```
 
