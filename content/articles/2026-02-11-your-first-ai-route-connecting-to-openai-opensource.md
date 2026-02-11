@@ -160,11 +160,11 @@ EOF
 
 ### Create OpenAI Backend
 
-agentgatewayBackend resources define how to connect to AI services. The `ai.provider.openai` section tells agentgateway this is an AI service that expects OpenAI-compatible requests. The authentication policy references our secret, and the timeout ensures long-running AI requests don't hang indefinitely.
+AgentGatewayBackend resources define how to connect to AI services. The `ai.provider.openai` section tells agentgateway this is an AI service that expects OpenAI-compatible requests. The authentication policy references our secret, and the timeout ensures long-running AI requests don't hang indefinitely.
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: agentgateway.dev/v1alpha1
-kind: agentgatewayBackend
+kind: AgentGatewayBackend
 metadata:
   name: openai-backend
   namespace: agentgateway-system
@@ -193,7 +193,7 @@ First, create a backend for non-AI endpoints (like models list):
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: agentgateway.dev/v1alpha1
-kind: agentgatewayBackend
+kind: AgentGatewayBackend
 metadata:
   name: openai-models-backend
   namespace: agentgateway-system
@@ -230,7 +230,7 @@ spec:
     backendRefs:
     - name: openai-backend
       group: agentgateway.dev
-      kind: agentgatewayBackend
+      kind: AgentGatewayBackend
     timeouts:
       request: "120s"
     filters:
@@ -257,7 +257,7 @@ spec:
     backendRefs:
     - name: openai-models-backend
       group: agentgateway.dev
-      kind: agentgatewayBackend
+      kind: AgentGatewayBackend
     filters:
     - type: URLRewrite
       urlRewrite:
@@ -272,7 +272,7 @@ EOF
 Before testing, we'll check that all our resources are properly created and accepted by the agentgateway controller. The `Accepted` status indicates that configurations are valid and the controller can proceed with implementation.
 ```bash
 # Check both backends
-kubectl get agentgatewaybackend -n agentgateway-system
+kubectl get AgentGatewayBackend -n agentgateway-system
 
 # Check routes
 kubectl get httproute -n agentgateway-system
@@ -431,7 +431,7 @@ curl -s "https://api.openai.com/v1/models" \
 Route issues often stem from mismatched resource names or namespaces. The Gateway, HTTPRoute, and Backend must all reference each other correctly for traffic to flow.
 ```bash
 # Check backend status
-kubectl describe agentgatewaybackend openai-backend -n agentgateway-system
+kubectl describe AgentGatewayBackend openai-backend -n agentgateway-system
 
 # Check route status
 kubectl describe httproute openai-chat -n agentgateway-system
@@ -454,7 +454,7 @@ export GATEWAY_PORT="8081"
 ### Debug Commands
 ```bash
 # View all agentgateway resources
-kubectl get agentgatewaybackend,gateway,httproute -n agentgateway-system
+kubectl get AgentGatewayBackend,gateway,httproute -n agentgateway-system
 
 # Check pod logs for errors
 kubectl logs deploy/agentgateway -n agentgateway-system --tail=20
@@ -483,7 +483,7 @@ This removes all the agentgateway configuration we created, but leaves the agent
 ```bash
 # Remove all OpenAI configuration
 kubectl delete httproute openai-chat openai-models -n agentgateway-system
-kubectl delete agentgatewaybackend openai-backend openai-models-backend -n agentgateway-system
+kubectl delete AgentGatewayBackend openai-backend openai-models-backend -n agentgateway-system
 kubectl delete gateway agentgateway-proxy -n agentgateway-system
 kubectl delete secret openai-secret -n agentgateway-system
 ```
