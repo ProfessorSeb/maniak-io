@@ -296,8 +296,11 @@ curl -s "$GATEWAY_IP:$GATEWAY_PORT/openai/chat/completions" \
 
 ### Test Models List
 ```bash
-# List available models
-curl -s "$GATEWAY_IP:$GATEWAY_PORT/openai/models" | jq '.data[] | select(.id | contains("gpt")) | .id'
+# List available models (check raw response first)
+curl -i "$GATEWAY_IP:$GATEWAY_PORT/openai/models"
+
+# If successful, filter for GPT models
+curl -s "$GATEWAY_IP:$GATEWAY_PORT/openai/models" | jq -r '.data[]? | select(.id | contains("gpt")) | .id'
 ```
 
 ---
@@ -306,9 +309,13 @@ curl -s "$GATEWAY_IP:$GATEWAY_PORT/openai/models" | jq '.data[] | select(.id | c
 
 ### View Real-Time Logs
 ```bash
-# View structured logs with AI context
-kubectl logs deploy/agentgateway -n agentgateway-system | \
-  jq 'select(.gen_ai) | {
+# Check what logs look like first
+kubectl logs deploy/agentgateway -n agentgateway-system --tail=5
+
+# View structured logs with AI context (filter JSON lines only)
+kubectl logs deploy/agentgateway -n agentgateway-system --tail=50 | \
+  grep '^{' | \
+  jq 'select(.gen_ai?) | {
     timestamp: .timestamp,
     model: .gen_ai.request.model,
     prompt_tokens: .gen_ai.usage.prompt_tokens,
@@ -326,7 +333,8 @@ cat <<'EOF' > calculate-costs.sh
 echo "Analyzing recent token usage..."
 
 kubectl logs deploy/agentgateway -n agentgateway-system --tail=50 | \
-  jq -r 'select(.gen_ai.usage) | [
+  grep '^{' | \
+  jq -r 'select(.gen_ai.usage?) | [
     .timestamp,
     .gen_ai.request.model,
     .gen_ai.usage.prompt_tokens,
