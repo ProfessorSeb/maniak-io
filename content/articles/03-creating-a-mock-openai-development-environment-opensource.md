@@ -353,8 +353,8 @@ kill %1
 Since we're using kind, we need to port-forward to access the gateway:
 
 ```bash
-# Port-forward AgentGateway service in background
-kubectl port-forward -n agentgateway-system svc/agentgateway 8080:8080 &
+# Port-forward AgentGateway service in background  
+kubectl port-forward -n agentgateway-system svc/agentgateway-proxy 8080:8080 &
 
 # Store the process ID to kill it later
 PORTFORWARD_PID=$!

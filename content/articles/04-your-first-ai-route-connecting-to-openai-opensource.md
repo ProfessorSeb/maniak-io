@@ -300,7 +300,7 @@ kubectl get httproute openai-chat -n agentgateway-system -o yaml | grep -A 10 st
 ### Setup Access to Gateway (Kind Cluster)
 ```bash
 # Port-forward AgentGateway service in background
-kubectl port-forward -n agentgateway-system svc/agentgateway 8080:8080 &
+kubectl port-forward -n agentgateway-system svc/agentgateway-proxy 8080:8080 &
 
 # Store the process ID to kill it later
 PORTFORWARD_PID=$!
