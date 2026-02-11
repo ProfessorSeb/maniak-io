@@ -39,7 +39,19 @@ In this guide, we'll deploy a mock OpenAI server that responds with realistic-lo
 
 ## Environment Setup
 
-First, let's install the open source AgentGateway following the official installation steps:
+### Create Kind Cluster
+First, create a kind cluster for AgentGateway:
+
+```bash
+# Create kind cluster
+kind create cluster --name agentgateway
+
+# Verify cluster is ready
+kubectl get nodes
+```
+
+### Install AgentGateway
+Now let's install the open source AgentGateway following the official installation steps:
 
 ```bash
 # 1. Install Gateway API CRDs (version 1.4.0)
