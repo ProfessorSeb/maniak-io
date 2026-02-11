@@ -149,6 +149,32 @@ EOF
 ```
 
 ### Create HTTP Routes
+
+First, create a backend for non-AI endpoints (like models list):
+
+**Why two backends?** AI endpoints like `/chat/completions` expect JSON payloads, but `/models` is a simple GET request. We need different backend types to handle each properly.
+
+```bash
+kubectl apply -f- <<'EOF'
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: openai-models-backend
+  namespace: agentgateway-system
+spec:
+  policies:
+    auth:
+      secretRef:
+        name: openai-secret
+    http:
+      requestTimeout: 30s
+  static:
+    host: api.openai.com
+    port: 443
+EOF
+```
+
+Then create the HTTP routes:
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
@@ -193,7 +219,7 @@ spec:
         type: PathPrefix
         value: /openai/models
     backendRefs:
-    - name: openai-backend
+    - name: openai-models-backend
       group: agentgateway.dev
       kind: AgentgatewayBackend
     filters:
@@ -207,8 +233,8 @@ EOF
 
 ### Verify Configuration
 ```bash
-# Check backend status
-kubectl get agentgatewaybackend openai-backend -n agentgateway-system
+# Check both backends
+kubectl get agentgatewaybackend -n agentgateway-system
 
 # Check routes
 kubectl get httproute -n agentgateway-system
@@ -446,7 +472,7 @@ kill $PORTFORWARD_PID
 ```bash
 # Remove all OpenAI configuration
 kubectl delete httproute openai-chat openai-models -n agentgateway-system
-kubectl delete agentgatewaybackend openai-backend -n agentgateway-system
+kubectl delete agentgatewaybackend openai-backend openai-models-backend -n agentgateway-system
 kubectl delete gateway agentgateway-proxy -n agentgateway-system
 kubectl delete secret openai-secret -n agentgateway-system
 ```
