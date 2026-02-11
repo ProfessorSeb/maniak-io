@@ -54,18 +54,17 @@ kubectl get nodes
 
 ### Install Gateway API and AgentGateway
 ```bash
-# Install Gateway API CRDs
+# 1. Install Gateway API CRDs (version 1.4.0)
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
 
-# Install AgentGateway
+# 2. Install AgentGateway (CRDs + Control Plane)
 helm upgrade --install agentgateway \
   oci://ghcr.io/agentgateway-dev/helm-charts/agentgateway \
-  -n agentgateway-system \
-  --create-namespace \
-  --wait
+  -n agentgateway-system --create-namespace
 
-# Check it's running
+# 3. Verify installation
 kubectl get pods -n agentgateway-system
+kubectl get gatewayclass
 ```
 
 ## Environment Setup
