@@ -297,12 +297,16 @@ kubectl get httproute openai-chat -n agentgateway-system -o yaml | grep -A 10 st
 
 ## Testing Your OpenAI Integration
 
-### Get Gateway Endpoint
+### Setup Access to Gateway (Kind Cluster)
 ```bash
-# Get gateway service details
-kubectl get svc -n agentgateway-system --selector=gateway.networking.k8s.io/gateway-name=agentgateway
+# Port-forward AgentGateway service in background
+kubectl port-forward -n agentgateway-system svc/agentgateway 8080:8080 &
 
-# For kind clusters, use localhost
+# Store the process ID to kill it later
+PORTFORWARD_PID=$!
+echo "Port-forward running as PID: $PORTFORWARD_PID"
+
+# Set gateway endpoint
 export GATEWAY_IP="localhost"
 export GATEWAY_PORT="8080"
 
@@ -849,6 +853,14 @@ esac
 EOF
 
 chmod +x openai-management.sh
+```
+
+## Stop Port-Forward
+
+When done testing, stop the port-forward process:
+```bash
+# Kill the port-forward process
+kill $PORTFORWARD_PID
 ```
 
 ## Installation with Open Source Helm Chart
