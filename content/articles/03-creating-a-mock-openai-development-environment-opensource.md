@@ -272,11 +272,12 @@ kubectl create configmap mock-openai-responses -n agentgateway-system --from-lit
 ## Configure AgentGateway for Mock OpenAI
 
 ### Create Mock OpenAI Backend
-First, create a secret for the mock API key:
+First, create a secret for the mock API key (skip if already exists):
 ```bash
 kubectl create secret generic mock-openai-secret \
   -n agentgateway-system \
-  --from-literal=apikey="mock-api-key"
+  --from-literal=apikey="mock-api-key" \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Then create the backend:
@@ -291,13 +292,12 @@ spec:
   ai:
     provider:
       openai: {}
-    host: mock-openai.agentgateway-system.svc.cluster.local
-    port: 443
+      host: mock-openai.agentgateway-system.svc.cluster.local
+      port: 443
   policies:
     auth:
       secretRef:
         name: mock-openai-secret
-        namespace: agentgateway-system
     http:
       requestTimeout: 30s
 EOF

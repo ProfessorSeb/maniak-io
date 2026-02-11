@@ -157,7 +157,6 @@ spec:
     auth:
       secretRef:
         name: openai-secret
-        namespace: agentgateway-system
     http:
       requestTimeout: 120s
 EOF
