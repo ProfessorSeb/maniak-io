@@ -272,15 +272,6 @@ kubectl create configmap mock-openai-responses -n agentgateway-system --from-lit
 ## Configure AgentGateway for Mock OpenAI
 
 ### Create Mock OpenAI Backend
-First, create a secret for the mock API key (skip if already exists):
-```bash
-kubectl create secret generic mock-openai-secret \
-  -n agentgateway-system \
-  --from-literal=apikey="mock-api-key" \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-Then create the backend:
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: agentgateway.dev/v1alpha1
@@ -291,15 +282,14 @@ metadata:
 spec:
   ai:
     provider:
-      openai: {}
+      openai:
+        model: "mock-gpt-4o"
       host: mock-openai.agentgateway-system.svc.cluster.local
       port: 443
+      path: "/v1/chat/completions"
   policies:
     auth:
-      secretRef:
-        name: mock-openai-secret
-    http:
-      requestTimeout: 30s
+      passthrough: {}
 EOF
 ```
 
@@ -331,19 +321,13 @@ spec:
   - matches:
     - path:
         type: PathPrefix
-        value: /mock-openai
+        value: /openai
     backendRefs:
     - name: mock-openai
       group: agentgateway.dev
       kind: AgentgatewayBackend
-    filters:
-    - type: URLRewrite
-      urlRewrite:
-        path:
-          type: ReplacePrefixMatch
-          replacePrefixMatch: /v1
     timeouts:
-      request: "60s"
+      request: "120s"
 EOF
 ```
 
@@ -376,7 +360,7 @@ if [ -z "$GATEWAY_IP" ]; then
 fi
 
 # Test chat completion
-curl -i "$GATEWAY_IP:8080/mock-openai/chat/completions" \
+curl -i "$GATEWAY_IP:8080/openai/chat/completions" \
   -H "content-type: application/json" \
   -H "authorization: bearer mock-token" \
   -d '{
@@ -418,7 +402,7 @@ Expected response:
 
 #### Test Embeddings
 ```bash
-curl -i "$GATEWAY_IP:8080/mock-openai/embeddings" \
+curl -i "$GATEWAY_IP:8080/openai/embeddings" \
   -H "content-type: application/json" \
   -H "authorization: bearer mock-token" \
   -d '{
@@ -429,7 +413,7 @@ curl -i "$GATEWAY_IP:8080/mock-openai/embeddings" \
 
 #### Test Models List
 ```bash
-curl -i "$GATEWAY_IP:8080/mock-openai/models" \
+curl -i "$GATEWAY_IP:8080/openai/models" \
   -H "authorization: bearer mock-token"
 ```
 
@@ -504,7 +488,7 @@ kubectl patch deployment mock-openai -n agentgateway-system --type='json' -p='[
 ### Test Error Scenarios
 ```bash
 # Test rate limiting
-curl -i "$GATEWAY_IP:8080/mock-openai/chat/completions" \
+curl -i "$GATEWAY_IP:8080/openai/chat/completions" \
   -H "content-type: application/json" \
   -H "authorization: bearer mock-token" \
   -H "x-test-scenario: rate-limit" \
@@ -514,7 +498,7 @@ curl -i "$GATEWAY_IP:8080/mock-openai/chat/completions" \
   }'
 
 # Test error scenario
-curl -i "$GATEWAY_IP:8080/mock-openai/chat/completions" \
+curl -i "$GATEWAY_IP:8080/openai/chat/completions" \
   -H "content-type: application/json" \
   -H "authorization: bearer mock-token" \
   -H "x-test-scenario: error" \
@@ -569,7 +553,7 @@ echo "Target: $GATEWAY_IP:$GATEWAY_PORT"
 send_request() {
   local id=$1
   curl -s -o /dev/null -w "Request $id: %{http_code} - %{time_total}s\n" \
-    "$GATEWAY_IP:$GATEWAY_PORT/mock-openai/chat/completions" \
+    "$GATEWAY_IP:$GATEWAY_PORT/openai/chat/completions" \
     -H "content-type: application/json" \
     -H "authorization: bearer mock-token" \
     -d '{
