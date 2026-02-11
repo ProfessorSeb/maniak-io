@@ -164,7 +164,7 @@ AgentGatewayBackend resources define how to connect to AI services. The `ai.prov
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: agentgateway.dev/v1alpha1
-kind: AgentGatewayBackend
+kind: AgentgatewayBackend
 metadata:
   name: openai-backend
   namespace: agentgateway-system
