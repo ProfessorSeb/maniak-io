@@ -61,13 +61,12 @@ helm upgrade -i --create-namespace \
   oci://ghcr.io/kgateway-dev/charts/agentgateway-crds
 
 # 3. Install AgentGateway control plane
-helm upgrade -i --namespace agentgateway-system \
-  --version v2.2.0 agentgateway \
-  oci://ghcr.io/kgateway-dev/charts/agentgateway
+helm upgrade -i -n agentgateway-system agentgateway \
+  oci://ghcr.io/kgateway-dev/charts/agentgateway \
+  --version v2.2.0
 
 # 4. Verify installation
 kubectl get pods -n agentgateway-system
-kubectl get gatewayclass
 ```
 
 ---
@@ -113,7 +112,7 @@ kubectl apply -f- <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: agentgateway
+  name: agentgateway-proxy
   namespace: agentgateway-system
 spec:
   gatewayClassName: agentgateway
@@ -159,7 +158,7 @@ metadata:
   namespace: agentgateway-system
 spec:
   parentRefs:
-  - name: agentgateway
+  - name: agentgateway-proxy
     namespace: agentgateway-system
   rules:
   - matches:
@@ -186,7 +185,7 @@ metadata:
   namespace: agentgateway-system
 spec:
   parentRefs:
-  - name: agentgateway
+  - name: agentgateway-proxy
     namespace: agentgateway-system
   rules:
   - matches:
@@ -215,7 +214,7 @@ kubectl get agentgatewaybackend openai-backend -n agentgateway-system
 kubectl get httproute -n agentgateway-system
 
 # Check Gateway
-kubectl get gateway agentgateway -n agentgateway-system
+kubectl get gateway agentgateway-proxy -n agentgateway-system
 ```
 
 ---
@@ -398,7 +397,7 @@ kubectl describe agentgatewaybackend openai-backend -n agentgateway-system
 kubectl describe httproute openai-chat -n agentgateway-system
 
 # Check Gateway status
-kubectl describe gateway agentgateway -n agentgateway-system
+kubectl describe gateway agentgateway-proxy -n agentgateway-system
 ```
 
 **4. Port-Forward Issues:**
@@ -440,7 +439,7 @@ kill $PORTFORWARD_PID
 # Remove all OpenAI configuration
 kubectl delete httproute openai-chat openai-models -n agentgateway-system
 kubectl delete agentgatewaybackend openai-backend -n agentgateway-system
-kubectl delete gateway agentgateway -n agentgateway-system
+kubectl delete gateway agentgateway-proxy -n agentgateway-system
 kubectl delete secret openai-secret -n agentgateway-system
 ```
 
