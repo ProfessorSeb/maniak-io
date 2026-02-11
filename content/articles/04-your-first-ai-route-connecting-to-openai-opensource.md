@@ -1,3 +1,9 @@
+---
+title: "Your First AI Route: Connecting to OpenAI with AgentGateway (Open Source)"
+date: 2026-02-11
+description: "Step-by-step guide to connecting open source AgentGateway to OpenAI API with cost tracking, monitoring, security best practices, and production-ready configurations."
+---
+
 # Your First AI Route: Connecting to OpenAI with AgentGateway (Open Source)
 
 ## Introduction

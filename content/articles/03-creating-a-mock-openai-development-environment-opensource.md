@@ -1,3 +1,9 @@
+---
+title: "Creating a Mock OpenAI Development Environment with Open Source AgentGateway"
+date: 2026-02-11
+description: "Learn how to set up a realistic mock OpenAI server with open source AgentGateway for cost-effective development, testing, and load testing without spending money on real API calls."
+---
+
 # Creating a Mock OpenAI Development Environment with Open Source AgentGateway
 
 ## Introduction
