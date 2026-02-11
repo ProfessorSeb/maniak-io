@@ -173,7 +173,31 @@ kubectl get agentgatewaybackend openai-all-models -n agentgateway-system -o json
 
 ## Creating OpenAI Routes
 
+### Create Gateway
+First, create the Gateway resource that the HTTPRoutes will reference:
+
+```bash
+kubectl apply -f- <<'EOF'
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway
+  namespace: agentgateway-system
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - protocol: HTTP
+    port: 8080
+    name: http
+    allowedRoutes:
+      namespaces:
+        from: All
+EOF
+```
+
 ### Basic Chat Completions Route
+Now create the HTTPRoute that references the Gateway:
+
 ```bash
 kubectl apply -f- <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
