@@ -682,9 +682,18 @@ AgentGateway gives you:
 
 ## Try It
 
-The full working demo is at [ProfessorSeb/aws-agentcore-demo](https://github.com/ProfessorSeb/aws-agentcore-demo) — includes Terraform for AWS + Okta, the agent container code, and a detailed auth flow deep-dive with runnable verification commands.
+The full working demo and related repositories:
 
-The backing Kubernetes cluster configuration lives at [ProfessorSeb/k8s-rooster](https://github.com/ProfessorSeb/k8s-rooster).
+| Repository | Description |
+|------------|-------------|
+| [aws-agentcore-demo](https://github.com/ProfessorSeb/aws-agentcore-demo) | The main demo — Terraform for AWS + Okta, agent container code, auth flow deep-dive |
+| [k8s-rooster](https://github.com/ProfessorSeb/k8s-rooster) | Backing Kubernetes cluster configuration (Talos + ArgoCD) |
+| [agentgateway-langfuse](https://github.com/ProfessorSeb/agentgateway-langfuse) | AgentGateway + Langfuse observability integration |
+| [agentgateway-ent-architecture](https://github.com/ProfessorSeb/agentgateway-ent-architecture) | Enterprise AgentGateway architecture patterns |
+| [agentgateway-onhalfof-identity-entraid](https://github.com/ProfessorSeb/agentgateway-onhalfof-identity-entraid) | On-Behalf-Of identity flow with Entra ID |
+| [agentregistry-oss-demo](https://github.com/ProfessorSeb/agentregistry-oss-demo) | Agent registry open-source demo |
+| [migrating-from-litellm-agentgateway](https://github.com/ProfessorSeb/migrating-from-litellm-agentgateway) | Migration guide from LiteLLM to AgentGateway |
+| [agentgateway-demo-script](https://github.com/ProfessorSeb/agentgateway-demo-script) | Demo scripts for AgentGateway walkthroughs |
 
 AgentGateway itself is at [agentgateway/agentgateway](https://github.com/agentgateway/agentgateway) — CNCF open-source, Apache 2.0 licensed.
 
