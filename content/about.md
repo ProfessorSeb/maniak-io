@@ -8,6 +8,8 @@ Sebastian Maniak is a Technology Evangelist, Advisor, Architect, and Content Cre
 
 ## What I Do
 
+**Go-to-Market (GTM)** at [Solo.io](https://www.solo.io), focused on AI and cloud-native connectivity — helping teams adopt AI gateways, service mesh, and API infrastructure for the next generation of intelligent applications.
+
 **Professor** at Sheridan College, teaching Applied Network Security and Infrastructure as Code.
 
 **CEO** at Maniak Ventures Inc.
