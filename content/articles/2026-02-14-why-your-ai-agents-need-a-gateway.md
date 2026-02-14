@@ -114,15 +114,15 @@ sequenceDiagram
     participant A as Agent Runtime
     participant AG as AgentGateway
     participant LLM as LLM Provider
-    participant MCP as MCP Tools
+    participant MCP as MCP Tools (Slack/GitHub)
 
     U->>O: Authenticate (AuthZ Code + PKCE)
     O-->>U: JWT (iss, aud, sub, scp)
     U->>GW: Request + Bearer JWT
     GW->>GW: Validate JWT (JWKS, iss, aud, exp)
-    GW->>A: Forward + identity context
-    A->>AG: LLM request (no API key needed)
-    AG->>AG: PII redaction, injection guard
+    GW->>A: Forward request + identity context
+    A->>AG: LLM request (no API key)
+    AG->>AG: PII redaction, prompt injection guard
     AG->>LLM: Forward (AG injects API key)
     LLM-->>AG: Response
     AG->>AG: Credential leak check
@@ -136,24 +136,71 @@ sequenceDiagram
     GW-->>U: Response
 ```
 
-### Okta Configuration
+### Okta Authorization Server
 
-Two OAuth2 apps enforce separation of human identity from machine identity:
+The architecture uses Okta's **default** authorization server with custom scopes for fine-grained MCP tool access:
+
+| Property | Value |
+|----------|-------|
+| Auth Server | `default` (`aus104zseyg64swj3698`) |
+| Issuer | `https://integrator-7147223.okta.com/oauth2/aus104zseyg64swj3698` |
+| Discovery URL | `.../.well-known/openid-configuration` |
+| JWKS URI | `.../v1/keys` |
+
+### Custom MCP Scopes
+
+Three custom scopes control fine-grained tool access, all managed via Terraform:
+
+```hcl
+resource "okta_auth_server_scope" "mcp_read" {
+  auth_server_id   = data.okta_auth_server.default.id
+  name             = "mcp:read"
+  description      = "Read access to MCP tools via AgentGateway"
+  consent          = "IMPLICIT"
+  metadata_publish = "ALL_CLIENTS"
+}
+
+resource "okta_auth_server_scope" "mcp_write" {
+  auth_server_id   = data.okta_auth_server.default.id
+  name             = "mcp:write"
+  description      = "Write access to MCP tools via AgentGateway"
+  consent          = "IMPLICIT"
+  metadata_publish = "ALL_CLIENTS"
+}
+
+resource "okta_auth_server_scope" "mcp_admin" {
+  auth_server_id   = data.okta_auth_server.default.id
+  name             = "mcp:admin"
+  description      = "Admin access to MCP tools (e.g. Slack post, GitHub write)"
+  consent          = "REQUIRED"           # Explicit user consent required
+  metadata_publish = "ALL_CLIENTS"
+}
+```
+
+The `REQUIRED` consent on `mcp:admin` ensures users explicitly approve admin-level operations — they cannot be silently granted.
+
+### OAuth2 Applications
+
+Two separate apps enforce **separation of human identity from machine identity**:
 
 **App 1 — User-Facing Client** (Authorization Code + PKCE):
+
 ```hcl
 resource "okta_app_oauth" "agentcore_client" {
   label                      = "devops-copilot-client"
   type                       = "web"
   grant_types                = ["authorization_code", "refresh_token"]
   redirect_uris              = [var.agent_redirect_uri]
+  post_logout_redirect_uris  = [var.agent_post_logout_uri]
   token_endpoint_auth_method = "client_secret_basic"
   response_types             = ["code"]
 }
 ```
-Used by: the human user authenticating via browser. PKCE mitigates authorization code interception attacks.
+
+Used by: the human user authenticating via browser. PKCE mitigates authorization code interception attacks. No implicit flow — only authorization code.
 
 **App 2 — Agent Service** (Machine-to-Machine):
+
 ```hcl
 resource "okta_app_oauth" "agentcore_service" {
   label                      = "devops-copilot-service"
@@ -163,66 +210,347 @@ resource "okta_app_oauth" "agentcore_service" {
   response_types             = ["token"]
 }
 ```
+
 Used by: AgentCore for On-Behalf-Of token exchange. The agent service authenticates itself, then exchanges the user's token for a delegated token with MCP scopes.
 
-**Custom MCP scopes** control fine-grained tool access:
-- `mcp:read` — read-only tool access (list channels, get issues)
-- `mcp:write` — write tool access (post messages, create issues)
-- `mcp:admin` — admin operations (requires explicit user consent)
+### Auth Server Policy
+
+A whitelist policy ensures **only these two apps** can request MCP-scoped tokens:
 
 ```hcl
-resource "okta_auth_server_scope" "mcp_read" {
-  auth_server_id = data.okta_auth_server.default.id
-  name           = "mcp:read"
-  consent        = "IMPLICIT"
+resource "okta_auth_server_policy" "agentcore" {
+  auth_server_id   = data.okta_auth_server.default.id
+  name             = "AgentCore Policy"
+  description      = "Token policy for AgentCore demo apps"
+  priority         = 1
+  client_whitelist = [
+    okta_app_oauth.agentcore_client.client_id,
+    okta_app_oauth.agentcore_service.client_id,
+  ]
 }
 
-resource "okta_auth_server_scope" "mcp_admin" {
-  auth_server_id = data.okta_auth_server.default.id
-  name           = "mcp:admin"
-  consent        = "REQUIRED"  # Explicit user consent required
+resource "okta_auth_server_policy_rule" "agentcore_rule" {
+  auth_server_id                  = data.okta_auth_server.default.id
+  policy_id                       = okta_auth_server_policy.agentcore.id
+  name                            = "Allow MCP scopes"
+  priority                        = 1
+  grant_type_whitelist            = ["authorization_code", "client_credentials"]
+  scope_whitelist                 = ["openid", "profile", "email",
+                                     "mcp:read", "mcp:write", "mcp:admin"]
+  group_whitelist                 = [data.okta_group.everyone.id]
+  access_token_lifetime_minutes   = 60
+  refresh_token_lifetime_minutes  = 1440
+  refresh_token_window_minutes    = 1440
 }
 ```
 
-### Step-by-Step Token Flow
+**Key controls:**
+- `access_token_lifetime_minutes = 60` — tokens expire in 1 hour; compromised tokens have limited blast radius
+- `group_whitelist = Everyone` — all org users can authenticate (restrict to specific groups in production)
+- `scope_whitelist` — explicitly enumerates allowed scopes; no wildcard
 
-**Step 1 — User authenticates, Okta issues JWT:**
+---
 
-The JWT carries the user's identity and MCP scopes through the entire chain. Key claims: `sub` is the human identity, `scp` controls exactly what MCP tools this user can invoke, `exp` enforces 1-hour token lifetime.
+## Step-by-Step Token Flow (The Full Details)
 
-**Step 2 — AgentCore Gateway validates JWT:**
+### Step 1 — User Authenticates, Okta Issues JWT
 
-The gateway validates on every request: JWT signature (RS256 via JWKS), issuer, audience (`api://default`), and expiration. Invalid tokens → `401 Unauthorized`. The agent never sees invalid requests.
+The user authenticates via the **Authorization Code + PKCE** flow. The browser redirects to Okta:
 
-**Step 3 — Agent receives authenticated request, zero secrets:**
+```
+https://integrator-7147223.okta.com/oauth2/aus104zseyg64swj3698/v1/authorize?
+  client_id=0oa104zvj88F21SEe698
+  &response_type=code
+  &scope=openid profile email mcp:read mcp:write
+  &redirect_uri=https://agent.example.com/callback
+  &state=<random>
+  &code_challenge=<S256 hash of code_verifier>
+  &code_challenge_method=S256
+```
 
-The agent container has **no LLM API keys, no Okta secrets, no tool credentials**. It only knows two URLs: AgentGateway's LLM proxy and MCP gateway. A compromised agent cannot escalate privileges because it holds no credentials to escalate with.
+After the user authenticates, Okta redirects back with an authorization code. The app exchanges it for tokens. The decoded JWT payload looks like:
 
-**Step 4 — Agent calls LLM through AgentGateway:**
+```json
+{
+  "ver": 1,
+  "jti": "AT.3xK8mR2pVq1nL9fYwZbCdE7hJ0kMnOpQrStUvWxYz",
+  "iss": "https://integrator-7147223.okta.com/oauth2/aus104zseyg64swj3698",
+  "aud": "api://default",
+  "iat": 1739541000,
+  "exp": 1739544600,
+  "cid": "0oa104zvbj26VVleo698",
+  "uid": "00u1a2b3c4d5e6f7g8h9",
+  "sub": "jane.doe@example.com",
+  "scp": ["mcp:read", "mcp:write"]
+}
+```
 
-AgentGateway is the **only** component with LLM API keys (stored as Kubernetes Secrets, managed by ArgoCD). Before forwarding to the LLM provider, it applies security policies — PII redaction, prompt injection guard, credential leak protection. The request is traced to Langfuse with the user's identity attached.
+**What matters:**
+- `iss` — identifies which Okta auth server issued this token (validated downstream)
+- `aud` — `api://default` — the AgentCore Gateway rejects tokens with any other audience
+- `sub` — the human user's identity, carried through the entire chain
+- `scp` — scopes determine exactly what MCP tools this user can invoke
+- `exp` — 1 hour from `iat`; expired tokens are rejected at every validation point
 
-**Step 5 — On-Behalf-Of token exchange for MCP tools:**
+### Step 2 — AgentCore Gateway Validates JWT
 
-When the agent needs to call Slack or GitHub, AgentCore's OAuth2 credential provider handles the token exchange. The service app exchanges the user's token for a new OBO token that carries the original user's identity + MCP scopes. When the agent posts a Slack message, it appears **as the user**. When it creates a GitHub issue, it's **attributed to the user**. The agent never has standing access to these tools.
+The AgentCore Gateway was created with a **CUSTOM_JWT authorizer** pointing to Okta's OIDC discovery endpoint:
 
-**Step 6 — AgentGateway enforces three layers of MCP access control:**
+```hcl
+resource "null_resource" "gateway" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws bedrock-agentcore-control create-gateway \
+        --name "${self.triggers.name}" \
+        --role-arn "${self.triggers.role_arn}" \
+        --protocol-type "MCP" \
+        --authorizer-type "CUSTOM_JWT" \
+        --authorizer-configuration '{
+          "customJWTAuthorizer": {
+            "discoveryUrl": "${self.triggers.okta_issuer}/.well-known/openid-configuration",
+            "allowedAudience": ["api://default"]
+          }
+        }' \
+        --no-cli-pager --output json
+    EOT
+  }
+}
+```
 
-**Layer 1: JWT Authentication** — Enterprise policy validates Okta JWTs on every MCP request. No valid token = no tool access.
+**The gateway performs these validations on every request:**
 
-**Layer 2: Scope-Based RBAC** — CEL expressions match JWT scopes to tool operations:
+| Check | How | Failure |
+|-------|-----|---------|
+| Signature (RS256) | Fetches JWKS from Okta discovery endpoint, verifies JWT signature | `401 Unauthorized` |
+| Issuer (`iss`) | Must match the configured Okta auth server | `401 Unauthorized` |
+| Audience (`aud`) | Must include `api://default` | `401 Unauthorized` |
+| Expiration (`exp`) | Must be in the future (with clock skew tolerance) | `401 Unauthorized` |
 
-| Scope | Allowed | Denied |
-|-------|---------|--------|
-| `mcp:read` | List channels, get issues, search code | Post messages, create issues |
-| `mcp:write` | All of read + post, create, comment | Delete, admin operations |
-| `mcp:admin` | All of write + admin operations | Destructive ops (always blocked) |
+**If any check fails, the request is rejected immediately.** The agent runtime never sees invalid requests.
 
-Key detail: `tools/list` responses are **filtered** (unauthorized tools hidden from the agent), `tools/call` requests **rejected** if scopes don't match.
+### Step 3 — Agent Receives Authenticated Request, Zero Secrets
 
-**Layer 3: Destructive Operation Blocking** — always denied regardless of scope. `delete_repository`, `merge_pull_request` — blocked unconditionally.
+Once the gateway validates the JWT, it forwards the request to the agent container with the **identity context attached**. The agent knows:
+
+- **Who** is calling (`sub` claim → `jane.doe@example.com`)
+- **What** they're authorized to do (`scp` claim → `["mcp:read", "mcp:write"]`)
+
+The agent container itself has **no secrets** — no LLM API keys, no Okta client secrets, no MCP tool credentials. Only the AgentGateway URL for outbound requests. A compromised agent cannot escalate privileges because it holds no credentials to escalate with.
+
+### Step 4 — Agent Calls LLM Through AgentGateway
+
+AgentGateway is the **single point of control** for LLM access:
+
+1. **API Key Injection** — AgentGateway holds the LLM API keys (stored as Kubernetes Secrets, managed by ArgoCD). The agent never sees them.
+2. **Pre-request Policy Enforcement:**
+   - **PII Detection/Redaction** — SSNs, credit card numbers, email addresses are redacted before reaching the LLM provider
+   - **Prompt Injection Guard** — known injection patterns are blocked
+3. **Post-response Policy Enforcement:**
+   - **Credential Leak Protection** — prevents secrets from appearing in LLM responses
+4. **Observability** — every request is traced to **Langfuse** with the user's identity (`sub` claim), model used, token count, latency, and cost
+
+### Step 5 — On-Behalf-Of Token Exchange for MCP Tools
+
+When the agent needs to call MCP tools (Slack, GitHub), it needs a **delegated identity token** — the agent acts *as the user*, not as itself.
+
+The **OAuth2 Credential Provider** configured in AgentCore handles this exchange:
+
+```hcl
+resource "null_resource" "okta_credential_provider" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws bedrock-agentcore-control create-oauth2-credential-provider \
+        --name "${self.triggers.name}" \
+        --credential-provider-vendor "CustomOIDC" \
+        --oauth2-provider-config-properties '{
+          "issuer": "${self.triggers.issuer}",
+          "clientId": "${self.triggers.client_id}",
+          "clientSecret": "${self.triggers.client_secret}",
+          "authorizationEndpoint": "${self.triggers.issuer}/v1/authorize",
+          "tokenEndpoint": "${self.triggers.issuer}/v1/token",
+          "scopes": ["openid", "mcp:read", "mcp:write"]
+        }'
+    EOT
+  }
+}
+```
+
+**The exchange flow:**
+
+1. Agent presents the user's validated identity context to the credential provider
+2. The **service app** (`devops-copilot-service`) authenticates to Okta using client credentials
+3. Okta issues a **new token** that carries the original user's identity (`sub`) + the requested MCP scopes
+4. This OBO token is used for MCP tool calls
+
+**Result:** When the agent posts a Slack message, it appears **as the user**. When it creates a GitHub issue, it's **attributed to the user**. The agent never has standing access to these tools.
+
+### Step 6 — AgentGateway Enforces Three Layers of MCP Access Control
+
+All deployed as declarative YAML on Kubernetes, managed via ArgoCD GitOps:
+
+#### Layer 1: JWT Authentication (Enterprise Policy)
+
+Every MCP request must carry a valid Okta JWT. Unauthenticated requests are rejected immediately.
+
+```yaml
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mcp-jwt-auth-ent
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-slack
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-github
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+      - issuer: "https://integrator-7147223.okta.com/oauth2/aus104zseyg64swj3698"
+        audiences: ["api://default"]
+        jwks:
+          inline: '<Okta JWKS JSON>'
+```
+
+#### Layer 2: Scope-Based Tool Authorization (CEL Expressions)
+
+Once authenticated, tool access is controlled by JWT scopes using CEL expressions:
+
+```yaml
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: mcp-tool-rbac-read
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-slack
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-github
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+          - >-
+            claims.scp.exists(s, s == 'mcp:read') && (
+              tool.name.startsWith('list_') ||
+              tool.name.startsWith('get_') ||
+              tool.name.startsWith('search_') ||
+              tool.name == 'slack_list_channels' ||
+              tool.name == 'slack_get_channel_history'
+            )
+```
+
+| Scope | Allowed Operations | Denied Operations |
+|-------|--------------------|-------------------|
+| `mcp:read` | List Slack channels, get GitHub issues, search code | Post messages, create issues |
+| `mcp:write` | All of `mcp:read` + post messages, create issues, reply | Delete channels, admin operations |
+| `mcp:admin` | All of `mcp:write` + admin operations | Destructive ops (always blocked) |
+
+**How it works at the MCP level:**
+- `tools/list` responses are **filtered** — unauthorized tools are hidden from the agent entirely
+- `tools/call` requests are **rejected** if the user's scopes don't match
+
+#### Layer 3: Destructive Operation Blocking
+
+Certain operations are **always denied**, regardless of scope:
+
+```yaml
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: mcp-tool-block-destructive
+spec:
+  backend:
+    mcp:
+      authorization:
+        action: Deny
+        policy:
+          matchExpressions:
+          - >-
+            tool.name.contains('delete') ||
+            tool.name.contains('destroy') ||
+            tool.name.contains('merge_pull_request')
+```
+
+Even `mcp:admin` users cannot delete repositories or force-merge PRs through the agent. These operations require human approval outside the agent workflow.
 
 Rate limiting applies per-user (the identified human, not the agent). Every tool call is traced with user identity.
+
+---
+
+## Verifying the Auth Chain
+
+You can validate the full token lifecycle end-to-end with these commands:
+
+### Obtain and Inspect a Token
+
+```bash
+# Client credentials grant (for testing)
+TOKEN_RESPONSE=$(curl -s -X POST \
+  "https://integrator-7147223.okta.com/oauth2/aus104zseyg64swj3698/v1/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=${OKTA_SERVICE_CLIENT_ID}" \
+  -d "client_secret=${OKTA_SERVICE_CLIENT_SECRET}" \
+  -d "scope=mcp:read mcp:write")
+
+ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+
+# Decode the JWT payload
+echo "$ACCESS_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | jq .
+```
+
+Verify: `iss` matches your Okta issuer, `aud` is `api://default`, `scp` contains the requested scopes.
+
+### Invoke the Agent via AgentCore
+
+```bash
+RUNTIME_ARN="arn:aws:bedrock-agentcore:us-east-1:<account>:runtime/<id>"
+PAYLOAD=$(echo -n '{"input":"List available Slack channels"}' | base64 -w0)
+
+aws bedrock-agentcore invoke-agent-runtime \
+  --agent-runtime-arn "$RUNTIME_ARN" \
+  --content-type "application/json" \
+  --payload "$PAYLOAD" \
+  response.json
+```
+
+### Verify Token Rejection
+
+```bash
+# Garbage token — should get 401
+curl -s -X POST "${GATEWAY_ENDPOINT}/invoke" \
+  -H "Authorization: Bearer invalid.token.here" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test"}'
+
+# Expected: {"message": "Unauthorized"}
+```
+
+### Check Traces in Langfuse
+
+Open Langfuse → Traces → Filter by user identity. Each trace shows: user identity (from JWT `sub`), model used, token counts, PII redactions applied, tool calls with arguments and results, total latency and cost.
+
+### Check AgentGateway Policy Enforcement
+
+```bash
+kubectl logs -n agentgateway deployment/agentgateway --tail=50 | \
+  grep -E "(policy|redact|blocked|scope)"
+```
+
+Look for:
+- `pii_redacted: 2 entities` — PII was caught and redacted
+- `scope_check: mcp:write ALLOWED` — scope validation passed
+- `prompt_injection: BLOCKED` — injection attempt was stopped
+- `rate_limit: user=jane.doe@example.com remaining=47/50` — per-user rate limiting
 
 ---
 
@@ -281,7 +609,45 @@ Every LLM call and MCP tool invocation is traced end-to-end with correlated trac
 
 ### Audit Trail
 
-Every operation produces a traceable record — from gateway JWT validation through LLM calls with PII redaction stats, through MCP tool invocations with scope verification, all the way to the final response with latency metrics.
+Every operation produces a traceable record:
+
+```
+User Request (trace-id: abc-123)
+  ├── Gateway: JWT validated for jane.doe@example.com [2024-02-14T15:30:00Z]
+  ├── Agent: Received request, scopes=[mcp:read, mcp:write]
+  ├── LLM Call: claude-sonnet-4-20250514, 1,247 input tokens, 384 output tokens, $0.0034
+  │   ├── PII redacted: 2 email addresses, 1 phone number
+  │   └── Prompt injection: none detected
+  ├── MCP Tool: slack.list_channels (mcp:read) → 200 OK, 23 channels
+  ├── MCP Tool: slack.post_message (mcp:write) → 200 OK, channel=#ops-alerts
+  └── Response returned to user [latency: 3.2s]
+```
+
+**Export destinations:**
+- **Langfuse** — LLM-specific analytics: model usage, token costs, prompt/completion pairs, user attribution
+- **ClickHouse** — gateway metrics: request rates, latencies, policy violations, error rates
+
+### Secrets Management
+
+| Secret | Location | Accessible By |
+|--------|----------|---------------|
+| LLM API keys (Anthropic, OpenAI) | Kubernetes Secrets (ArgoCD-managed) | AgentGateway only |
+| Okta client secrets | Terraform state (encrypted) + AWS Secrets Manager | AgentCore credential provider only |
+| Agent container credentials | **None** | N/A — agent has zero secrets |
+
+Credential rotation does not require agent redeployment. Update the AgentGateway config or Okta credential provider; agents are unaffected because they never hold credentials directly.
+
+### Policy Enforcement Summary
+
+| Policy | Enforcement Point | Mechanism |
+|--------|-------------------|-----------|
+| PII redaction | AgentGateway (pre-LLM) | Regex + NER detection; redacted before request leaves the gateway |
+| Prompt injection | AgentGateway (pre-LLM) | Pattern matching + classifier; request blocked with 403 |
+| Credential leak | AgentGateway (post-LLM) | Response scanning; secrets masked before reaching agent |
+| Rate limiting | AgentGateway | Per-user (from JWT `sub`), not per-agent |
+| Scope enforcement | AgentGateway (MCP routes) | OBO token `scp` claim checked against tool requirements |
+
+All policies are defined in **declarative YAML** and managed via **GitOps** (ArgoCD). Changes are version-controlled, reviewed, and auditable.
 
 ### With vs Without Gateway
 
