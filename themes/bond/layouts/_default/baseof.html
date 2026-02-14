@@ -15,6 +15,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    (function() {
+      var t = localStorage.getItem('theme') || 'dark';
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: t === 'light' ? 'default' : 'dark',
+        securityLevel: 'loose'
+      });
+    })();
+  </script>
 </head>
 <body>
   {{ partial "header.html" . }}
@@ -31,7 +42,23 @@
       var next = current === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('theme', next);
+      // Re-init mermaid with new theme
+      if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({ theme: next === 'light' ? 'default' : 'dark', securityLevel: 'loose' });
+      }
     }
+
+    // Convert mermaid code blocks to mermaid divs
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('pre > code.language-mermaid').forEach(function(el) {
+        var pre = el.parentElement;
+        var div = document.createElement('pre');
+        div.className = 'mermaid';
+        div.textContent = el.textContent;
+        pre.parentElement.replaceChild(div, pre);
+      });
+      if (typeof mermaid !== 'undefined') { mermaid.run(); }
+    });
 
     document.addEventListener('DOMContentLoaded', function() {
       const toggle = document.querySelector('.nav-toggle');
