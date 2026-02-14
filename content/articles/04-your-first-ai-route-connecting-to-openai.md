@@ -4,7 +4,6 @@ date: 2026-02-09
 description: "Learn how to create production-ready routes to OpenAI through AgentGateway. Configure secure API key storage, implement proper backends and HTTPRoutes, monitor real AI requests, and track costs with comprehensive observability."
 ---
 
-# Your First AI Route: Connecting to OpenAI
 
 ## Introduction
 

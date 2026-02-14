@@ -5,7 +5,7 @@
     <h1>{{ .Title }}</h1>
   </header>
   <div class="content">
-    {{ .Content | replaceRE `<h1[^>]*>[^<]*</h1>\s*` "" 1 }}
+    {{ .Content }}
   </div>
 </article>
 {{ end }}

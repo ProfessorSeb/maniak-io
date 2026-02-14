@@ -71,7 +71,6 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/downloa
 ### Install AgentGateway 2.1 OSS
 
 ```bash
-# Install CRDs
 helm upgrade -i agentgateway-crds oci://cr.agentgateway.dev/helm/agentgateway-crds \
   --version 2.1.0 \
   --namespace agentgateway-system \

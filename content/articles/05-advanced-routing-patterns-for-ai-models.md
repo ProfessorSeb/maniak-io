@@ -4,7 +4,6 @@ date: 2026-02-09
 description: "Master sophisticated AI traffic management with AgentGateway's advanced routing patterns. Learn path-based, header-based, weighted, and content-based routing for intelligent model selection, A/B testing, cost optimization, and failover strategies."
 ---
 
-# Advanced Routing Patterns for AI Models
 
 ## Introduction
 

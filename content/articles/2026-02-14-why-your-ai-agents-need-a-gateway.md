@@ -4,7 +4,6 @@ date: 2026-02-14
 description: "You wouldn't deploy microservices without an API gateway. So why are teams deploying AI agents with direct, ungoverned access to LLMs and external tools? This post walks through building a governed agent platform on AWS Bedrock AgentCore with AgentGateway, Okta identity, and full observability."
 ---
 
-# Why Your AI Agents Need a Gateway: Securing AWS AgentCore with AgentGateway
 
 You wouldn't deploy microservices without an API gateway. So why are teams deploying AI agents with direct, ungoverned access to LLMs and external tools?
 

@@ -4,7 +4,6 @@ date: 2026-02-09
 description: "Deploy a complete observability stack for AgentGateway including distributed tracing with Tempo, metrics with Prometheus and Grafana, and AI-specific monitoring dashboards for comprehensive visibility into performance and costs."
 ---
 
-# Observability Stack: Monitoring Your AI Gateway
 
 ## Introduction
 

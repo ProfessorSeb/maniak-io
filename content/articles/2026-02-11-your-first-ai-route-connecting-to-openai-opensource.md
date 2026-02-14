@@ -48,7 +48,6 @@ In this step, we'll create a local Kubernetes cluster using kind (Kubernetes in 
 
 Kind creates Kubernetes clusters using Docker containers as nodes. This is perfect for development and testing because it's lightweight, fast to spin up, and doesn't require cloud resources.
 ```bash
-# On macOS 
 brew install kind
 
 # On Linux

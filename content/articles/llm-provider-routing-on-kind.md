@@ -359,7 +359,6 @@ Once all resources are applied, verify everything is connected and working.
 ### Check resource status
 
 ```shell
-# Verify the Gateway is accepted
 kubectl get gateway -n agentgateway-system
 
 # Verify backends exist

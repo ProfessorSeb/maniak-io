@@ -4,7 +4,6 @@ date: 2026-02-09
 description: "Complete guide to setting up Enterprise AgentGateway on kind clusters with comprehensive monitoring, security features, and production-ready configurations for development and testing environments."
 ---
 
-# Setting Up Enterprise AgentGateway on Kind Clusters
 
 ## Introduction
 
