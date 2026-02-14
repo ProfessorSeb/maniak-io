@@ -14,5 +14,9 @@
         <a href="{{ .URL }}"{{ if $.IsMenuCurrent "main" . }} class="active"{{ end }}>{{ .Name }}</a>
       {{ end }}
     </nav>
+    <button class="theme-toggle" aria-label="Toggle light/dark mode" onclick="toggleTheme()">
+      <span class="icon-sun">☀️</span>
+      <span class="icon-moon">🌙</span>
+    </button>
   </div>
 </header>
