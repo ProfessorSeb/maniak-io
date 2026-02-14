@@ -18,8 +18,9 @@ Sebastian Maniak is a Technology Evangelist, Advisor, Architect, and Content Cre
 
 ## Recognition
 
-- 2024 HashiCorp Ambassador
-- 2024 F5 DevCentral MVP
+- **F5 DevCentral MVP** — 2020, 2021, 2022, 2023, 2024, 2025, 2026
+- **HashiCorp Ambassador** — 2022, 2024, 2025
+- **Snyk Ambassador** — 2025
 
 ## Expertise
 
