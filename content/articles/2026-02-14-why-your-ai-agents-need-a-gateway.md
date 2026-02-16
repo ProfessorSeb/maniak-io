@@ -662,6 +662,30 @@ All policies are defined in **declarative YAML** and managed via **GitOps** (Arg
 
 ---
 
+## FAQ: Why Two Gateways?
+
+If you're looking at this architecture and thinking "wait, there are TWO gateways?" — you're right, and they do very different things.
+
+**AgentCore Gateway** is an AWS-managed service. It's the MCP protocol bridge that connects the AgentCore runtime to your MCP tool servers. It handles identity verification at the AWS edge (validating Okta JWTs via OIDC discovery) and manages the MCP connection lifecycle. It exists because AWS requires a managed control point for agents to discover and connect to external tools. Think of it as the **front door** — it answers "is this agent allowed to connect?"
+
+**Agentgateway** is the self-hosted governance layer running on your Kubernetes cluster. It's where the actual security policies live: PII protection, prompt injection guards, credential leak detection, rate limiting, multi-provider LLM routing, scope-based MCP authorization, and full observability via Langfuse and ClickHouse. Think of it as the **policy engine** — it answers "what can this agent do, and how do we track it?"
+
+The request flow with both:
+
+```
+Agent → AgentCore Gateway (AWS, identity) → ngrok → Agentgateway (k8s, policy) → LLMs/Tools
+```
+
+**Do you always need both?** No. The AgentCore Gateway is only required when hosting agents on AWS Bedrock AgentCore — it's the AWS-managed entry point for MCP protocol routing. If you're self-hosting agents (on Kubernetes, bare metal, or any other platform), your agents connect directly to Agentgateway and it handles everything — identity, authorization, routing, policies, and observability — in one place:
+
+```
+Agent → Agentgateway (identity + policy) → LLMs/Tools
+```
+
+The key insight: Agentgateway is the governance layer you need regardless of where your agents run. AgentCore Gateway is the additional AWS component you need when running on their managed platform. They complement each other, but Agentgateway is the one doing the heavy lifting on security and observability.
+
+---
+
 ## Why This Matters for Production
 
 The parallel to API gateways in the microservices era is exact. In 2015, teams deployed services that called each other directly — no rate limiting, no circuit breaking, no centralized auth. Then API gateways and service meshes became standard infrastructure because you can't run production systems without governance.
