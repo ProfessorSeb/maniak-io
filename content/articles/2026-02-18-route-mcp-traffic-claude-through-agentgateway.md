@@ -2,7 +2,7 @@
 title: "Route MCP and LLM Traffic from Claude Desktop and Claude Code Through AgentGateway"
 publishDate: 2026-02-18
 author: "Sebastian Maniak"
-description: "How to proxy MCP server traffic from Claude Desktop and LLM API calls from Claude Code through Solo AgentGateway for security, observability, and rate limiting — using Google Gemini as the backend provider."
+description: "How to proxy MCP server traffic from Claude Desktop and LLM API calls from Claude Code through Solo AgentGateway for security, observability, and rate limiting — using Anthropic as the backend provider."
 ---
 
 ## Introduction
@@ -11,7 +11,7 @@ Claude Desktop and Claude Code are powerful AI tools, but out of the box they ta
 
 What if you could put a gateway in front of all that traffic?
 
-This guide shows you how to route both **MCP server traffic from Claude Desktop** and **LLM API calls from Claude Code** through [Solo AgentGateway](https://agentgateway.dev) — giving you JWT authentication, observability traces, rate limiting, and centralized API key management. We'll use **Google Gemini** as the LLM provider.
+This guide shows you how to route both **MCP server traffic from Claude Desktop** and **LLM API calls from Claude Code** through [Solo AgentGateway](https://agentgateway.dev) — giving you JWT authentication, observability traces, rate limiting, and centralized API key management. We'll use **Anthropic** as the LLM provider.
 
 ## What You Get
 
@@ -34,19 +34,19 @@ By routing traffic through AgentGateway, you gain:
                               │    (Gateway API)         │
 ┌──────────────────┐          │                          │
 │  Claude Code     │          │  • JWT Auth              │
-│  (LLM traffic)   │─────────▶│  • Rate Limiting         │──▶ Google Gemini
+│  (LLM traffic)   │─────────▶│  • Rate Limiting         │──▶ Anthropic API
 │                  │          │  • OTel Tracing          │
 └──────────────────┘          │  • Prompt Guards         │
                               └──────────────────────────┘
 ```
 
-Claude Desktop connects to MCP servers *through* the gateway. Claude Code sends its LLM API calls *through* the gateway to Gemini. Both streams get the same security and observability treatment.
+Claude Desktop connects to MCP servers *through* the gateway. Claude Code sends its LLM API calls *through* the gateway to Anthropic. Both streams get the same security and observability treatment.
 
 ## Prerequisites
 
 - Kubernetes cluster with AgentGateway deployed ([quickstart](https://docs.solo.io/agentgateway/latest/quickstart/))
 - `kubectl` and `helm` installed
-- Google Gemini API key
+- Anthropic API key
 - Claude Desktop installed (for MCP routing)
 - Claude Code CLI installed (for LLM routing): `npm install -g @anthropic-ai/claude-code`
 
@@ -200,14 +200,14 @@ kubectl wait --for=condition=ready pod -l app=mcp-math-server --timeout=120s
 
 ## Part 2: Create the Gateway and Routes
 
-We need two things routed through AgentGateway: MCP tool traffic and LLM API traffic to Gemini.
+We need two things routed through AgentGateway: MCP tool traffic and LLM API traffic to Anthropic.
 
-### Create the Gemini API Key Secret
+### Create the Anthropic API Key Secret
 
 ```bash
-kubectl create secret generic gemini-api-key \
+kubectl create secret generic anthropic-api-key \
   -n agentgateway-system \
-  --from-literal=Authorization="Bearer $GEMINI_API_KEY"
+  --from-literal=Authorization="Bearer $ANTHROPIC_API_KEY"
 ```
 
 ### Create the Gateway
@@ -272,29 +272,29 @@ spec:
       kind: AgentgatewayBackend
 ```
 
-### Create the Gemini LLM Backend and Route
+### Create the Anthropic LLM Backend and Route
 
 ```yaml
-# gemini-backend.yaml
+# anthropic-backend.yaml
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
 metadata:
-  name: gemini-llm
+  name: anthropic-llm
   namespace: agentgateway-system
 spec:
   type: llm
   llm:
     provider:
-      gemini:
+      anthropic:
         authToken:
           secretRef:
-            name: gemini-api-key
+            name: anthropic-api-key
             namespace: agentgateway-system
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: gemini-route
+  name: anthropic-route
   namespace: agentgateway-system
 spec:
   parentRefs:
@@ -303,9 +303,9 @@ spec:
   - matches:
     - path:
         type: PathPrefix
-        value: /gemini
+        value: /anthropic
     backendRefs:
-    - name: gemini-llm
+    - name: anthropic-llm
       group: agentgateway.dev
       kind: AgentgatewayBackend
 ```
@@ -315,7 +315,7 @@ Apply everything:
 ```bash
 kubectl apply -f gateway.yaml
 kubectl apply -f mcp-backend.yaml
-kubectl apply -f gemini-backend.yaml
+kubectl apply -f anthropic-backend.yaml
 ```
 
 ### Get the Gateway Address
@@ -379,22 +379,22 @@ If you've configured JWT auth on the gateway:
 
 Restart Claude Desktop after saving the config. You should see the math tools available in the tools menu.
 
-## Part 4: Configure Claude Code (LLM Traffic via Gemini)
+## Part 4: Configure Claude Code (LLM Traffic via Anthropic)
 
-Claude Code can route its LLM API traffic through AgentGateway to Gemini. This means your API keys stay in Kubernetes secrets — not on developer machines.
+Claude Code can route its LLM API traffic through AgentGateway to Anthropic. This means your API keys stay in Kubernetes secrets — not on developer machines.
 
 ### Set the Base URL
 
-Point Claude Code at the gateway's Gemini route:
+Point Claude Code at the gateway's Anthropic route:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/gemini
+export ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/anthropic
 ```
 
 For persistence, add it to your shell profile:
 
 ```bash
-echo "export ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/gemini" >> ~/.zshrc
+echo "export ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/anthropic" >> ~/.zshrc
 ```
 
 ### Run Claude Code
@@ -403,7 +403,7 @@ echo "export ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/gemini" >> ~/.zshrc
 claude
 ```
 
-All LLM traffic now flows through AgentGateway to Gemini. You can verify by checking the gateway logs:
+All LLM traffic now flows through AgentGateway to Anthropic. You can verify by checking the gateway logs:
 
 ```bash
 kubectl logs -n agentgateway-system -l gateway.networking.k8s.io/gateway-name=ai-gateway -f
@@ -427,7 +427,7 @@ spec:
   targetRefs:
   - group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: gemini-route
+    name: anthropic-route
   default:
     rateLimiting:
       tokenBucket:
@@ -438,7 +438,7 @@ spec:
 
 ### Prompt Guards
 
-Block prompt injection attempts before they reach Gemini:
+Block prompt injection attempts before they reach Anthropic:
 
 ```yaml
 apiVersion: agentgateway.dev/v1alpha1
@@ -450,7 +450,7 @@ spec:
   targetRefs:
   - group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: gemini-route
+    name: anthropic-route
   default:
     promptGuard:
       request:
@@ -500,9 +500,9 @@ Claude should invoke the `multiply` tool through AgentGateway. Check the gateway
 ### Test LLM (Claude Code)
 
 ```bash
-ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/gemini claude
+ANTHROPIC_BASE_URL=http://$GATEWAY_IP:8080/anthropic claude
 
-# In Claude Code, type any prompt — it routes through the gateway to Gemini
+# In Claude Code, type any prompt — it routes through the gateway to Anthropic
 ```
 
 ### Test with MCP Inspector
@@ -540,17 +540,17 @@ You should see the math tools listed and be able to invoke them.
 - Check gateway pod resources are sufficient for the traffic volume
 
 **Authentication errors?**
-- Verify the Gemini API key secret exists: `kubectl get secret gemini-api-key -n agentgateway-system`
-- Check the key is valid with a direct curl to Gemini's API
+- Verify the Anthropic API key secret exists: `kubectl get secret anthropic-api-key -n agentgateway-system`
+- Check the key is valid with a direct curl to Anthropic's API
 
 ## Cleanup
 
 ```bash
-kubectl delete -f gateway.yaml -f mcp-backend.yaml -f gemini-backend.yaml
+kubectl delete -f gateway.yaml -f mcp-backend.yaml -f anthropic-backend.yaml
 kubectl delete deployment mcp-math-server
 kubectl delete svc mcp-math-server
 kubectl delete configmap mcp-math-script
-kubectl delete secret gemini-api-key -n agentgateway-system
+kubectl delete secret anthropic-api-key -n agentgateway-system
 ```
 
 ## Resources
@@ -560,4 +560,4 @@ kubectl delete secret gemini-api-key -n agentgateway-system
 - [Claude Desktop MCP Documentation](https://docs.anthropic.com/en/docs/claude-desktop/mcp)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - [Original demo configs](https://github.com/AdminTurnedDevOps/agentic-demo-repo/tree/main/agent-desktop-configs)
-- [Google Gemini API](https://ai.google.dev/)
+- [Anthropic API](https://docs.anthropic.com/en/api)
