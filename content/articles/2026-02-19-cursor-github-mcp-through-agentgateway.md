@@ -142,13 +142,28 @@ spec:
 EOF
 ```
 
+Verify its deployed
+
+```
+kubectl get httproute -n agentgateway-system
+```
+
+Output 
+
+```
+NAME         HOSTNAMES   AGE
+github-mcp               7m59s
+```
+
+
+
 A few things to note:
 
 - **`path: /mcp/`** — GitHub's MCP endpoint path
 - **`tls.sni`** — required since we're connecting to a remote HTTPS endpoint on port 443
 - **`auth.secretRef`** — injects the `Authorization: Bearer <PAT>` header on every request to GitHub
 
-## Step 5: Create the MCP HTTPRoute and Policy
+## Step 5: Create the MCP HTTPRoute
 
 Route traffic from the AgentGateway proxy to the GitHub MCP backend, and add an `AgentgatewayPolicy` to allow tool calls:
 
@@ -175,14 +190,26 @@ spec:
 EOF
 ```
 
-The `AgentgatewayPolicy` with `toolAuth.defaultAction: Allow` ensures all MCP tool calls are forwarded. In production, you could restrict this to specific tools or add JWT authentication.
+Verify its deployed
+
+```
+kubectl get AgentgatewayBackend -n agentgateway-system
+```
+
+Output 
+
+```
+NAME                 ACCEPTED   AGE
+github-mcp-backend   True       8m52s
+```
+
 
 ## Step 6: Connect Cursor
 
 Port-forward the AgentGateway proxy to your laptop:
 
 ```bash
-kubectl port-forward -n agentgateway-system deployment/agentgateway-proxy 8080:80
+kubectl port-forward -n agentgateway-system deployment/agentgateway-proxy 8080:8080
 ```
 
 Leave that running in a separate terminal. Now create or update `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project):
