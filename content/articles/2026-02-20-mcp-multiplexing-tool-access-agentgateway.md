@@ -176,81 +176,78 @@ This server provides a `fetch` tool that can retrieve and extract content from a
 
 ```bash
 kubectl apply -f- <<EOF
-  apiVersion: v1
-  kind: ConfigMap
-  metadata:
-    name: mcp-website-fetcher-fix
-    namespace: agentgateway-system
-  data:
-    app.py: |
-      import httpx
-      from mcp.server.fastmcp import FastMCP
-
-      mcp = FastMCP(
-          "mcp-website-fetcher",
-          host="0.0.0.0",
-          port=8000,
-          streamable_http_path="/mcp",
-          stateless_http=True,
-      )
-
-      @mcp.tool()
-      async def fetch(url: str) -> str:
-          """Fetches a website and returns its content"""
-          headers = {"User-Agent": "MCP Test Server"}
-          async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
-              response = await client.get(url)
-              response.raise_for_status()
-              return response.text
-
-      if __name__ == "__main__":
-          mcp.run(transport="streamable-http")
-  ---
-  apiVersion: apps/v1
-  kind: Deployment
-  metadata:
-    name: mcp-website-fetcher
-    namespace: agentgateway-system
-  spec:
-    selector:
-      matchLabels:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-website-fetcher-fix
+  namespace: agentgateway-system
+data:
+  app.py: |
+    import httpx
+    from mcp.server.fastmcp import FastMCP
+    mcp = FastMCP(
+        "mcp-website-fetcher",
+        host="0.0.0.0",
+        port=8000,
+        streamable_http_path="/mcp",
+        stateless_http=True,
+    )
+    @mcp.tool()
+    async def fetch(url: str) -> str:
+        """Fetches a website and returns its content"""
+        headers = {"User-Agent": "MCP Test Server"}
+        async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.text
+    if __name__ == "__main__":
+        mcp.run(transport="streamable-http")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-website-fetcher
+  namespace: agentgateway-system
+spec:
+  selector:
+    matchLabels:
+      app: mcp-website-fetcher
+  template:
+    metadata:
+      labels:
         app: mcp-website-fetcher
-    template:
-      metadata:
-        labels:
-          app: mcp-website-fetcher
-      spec:
-        containers:
-        - name: mcp-website-fetcher
-          image: ghcr.io/peterj/mcp-website-fetcher:main
-          imagePullPolicy: Always
-          command: ["python3", "/app/app.py"]
-          volumeMounts:
-          - name: fix
-            mountPath: /app/app.py
-            subPath: app.py
-        volumes:
+    spec:
+      containers:
+      - name: mcp-website-fetcher
+        image: ghcr.io/peterj/mcp-website-fetcher:main
+        imagePullPolicy: Always
+        command: ["python3", "/app/app.py"]
+        volumeMounts:
         - name: fix
-          configMap:
-            name: mcp-website-fetcher-fix
-  ---
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: mcp-website-fetcher
-    namespace: agentgateway-system
-    labels:
-      app: mcp-website-fetcher
-      mcp-federation: "true"
-  spec:
-    selector:
-      app: mcp-website-fetcher
-    ports:
-    - port: 80
-      targetPort: 8000
-      appProtocol: kgateway.dev/mcp
-    type: ClusterIP
-  EOF
+          mountPath: /app/app.py
+          subPath: app.py
+      volumes:
+      - name: fix
+        configMap:
+          name: mcp-website-fetcher-fix
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-website-fetcher
+  namespace: agentgateway-system
+  labels:
+    app: mcp-website-fetcher
+    mcp-federation: "true"
+spec:
+  selector:
+    app: mcp-website-fetcher
+  ports:
+  - port: 80
+    targetPort: 8000
+    appProtocol: kgateway.dev/mcp
+  type: ClusterIP
+EOF
 ```
 
 Wait for both servers to be ready:
