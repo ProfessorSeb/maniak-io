@@ -123,6 +123,8 @@ kubectl rollout status deploy/mcp-gateway -n agentgateway-system --timeout=60s
 
 This server provides general utility tools like `echo`, `add`, `longRunningOperation`, and more.
 
+> **Note**: The official `mcp/*` Docker Hub images are **stdio-based** — they don't listen on a port and will exit immediately in Kubernetes. We use [supergateway](https://github.com/supercorp-ai/supergateway) to wrap each stdio server and expose it over streamable HTTP, which is exactly the transport AgentGateway's multiplex feature requires.
+
 ```bash
 kubectl apply -f- <<EOF
 apiVersion: apps/v1
@@ -141,10 +143,34 @@ spec:
         app: mcp-server-everything
     spec:
       containers:
-      - name: mcp-server-everything
-        image: docker.io/mcp/everything:latest
+      - name: supergateway
+        image: node:22-slim
+        command: ["npx"]
+        args:
+          - "-y"
+          - "supergateway"
+          - "--stdio"
+          - "npx -y @modelcontextprotocol/server-everything"
+          - "--port"
+          - "8000"
+          - "--outputTransport"
+          - "streamableHttp"
+          - "--healthEndpoint"
+          - "/healthz"
         ports:
-        - containerPort: 3001
+        - containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 15
 ---
 apiVersion: v1
 kind: Service
@@ -156,8 +182,8 @@ metadata:
     mcp-federation: "true"
 spec:
   ports:
-  - port: 3001
-    targetPort: 3001
+  - port: 8000
+    targetPort: 8000
     appProtocol: kgateway.dev/mcp
   selector:
     app: mcp-server-everything
@@ -186,10 +212,34 @@ spec:
         app: mcp-website-fetcher
     spec:
       containers:
-      - name: mcp-website-fetcher
-        image: docker.io/mcp/fetch:latest
+      - name: supergateway
+        image: node:22-slim
+        command: ["npx"]
+        args:
+          - "-y"
+          - "supergateway"
+          - "--stdio"
+          - "npx -y @modelcontextprotocol/server-fetch"
+          - "--port"
+          - "8000"
+          - "--outputTransport"
+          - "streamableHttp"
+          - "--healthEndpoint"
+          - "/healthz"
         ports:
-        - containerPort: 3001
+        - containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 15
 ---
 apiVersion: v1
 kind: Service
@@ -201,8 +251,8 @@ metadata:
     mcp-federation: "true"
 spec:
   ports:
-  - port: 3001
-    targetPort: 3001
+  - port: 8000
+    targetPort: 8000
     appProtocol: kgateway.dev/mcp
   selector:
     app: mcp-website-fetcher
@@ -287,25 +337,12 @@ Connect with:
 
 Click **Tools** → **List Tools**. You should see tools from **both** servers, namespaced:
 
-- `mcp-server-everything-3001_echo` — echo a message
-- `mcp-server-everything-3001_add` — add two numbers
-- `mcp-server-everything-3001_longRunningOperation` — simulate a long task
-- `mcp-website-fetcher_fetch` — fetch and extract content from a URL
+- `mcp-server-everything-8000_echo` — echo a message
+- `mcp-server-everything-8000_add` — add two numbers
+- `mcp-server-everything-8000_longRunningOperation` — simulate a long task
+- `mcp-website-fetcher-8000_fetch` — fetch and extract content from a URL
 
 **One endpoint. Two servers. All tools.**
-
-### Test with Curl
-
-You can also verify the MCP connection with curl:
-
-```bash
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
-```
-
-You should see a JSON response listing all tools from both servers.
 
 ---
 
@@ -494,7 +531,7 @@ spec:
   mcp:
     toolAccess:
     - cel: 'jwt.sub == "bob"'
-    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher")'
+    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher-8000")'
 EOF
 ```
 
@@ -514,7 +551,7 @@ npx @modelcontextprotocol/inspector@latest \
 ```
 
 Alice should only see:
-- `mcp-website-fetcher_fetch`
+- `mcp-website-fetcher-8000_fetch`
 
 The `echo`, `add`, and other everything-server tools are **hidden** from Alice.
 
@@ -540,11 +577,11 @@ npx @modelcontextprotocol/inspector@latest \
   --header "mcp-protocol-version: 2024-11-05" \
   --header "Authorization: Bearer $ALICE_JWT" \
   --method tools/call \
-  --tool-name mcp-website-fetcher_fetch \
+  --tool-name mcp-website-fetcher-8000_fetch \
   --tool-arg url=https://agentgateway.dev
 ```
 
-Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-3001_echo` would be denied.
+Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-8000_echo` would be denied.
 
 ---
 
