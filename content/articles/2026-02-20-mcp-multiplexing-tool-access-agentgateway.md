@@ -462,28 +462,33 @@ spec:
 EOF
 ```
 
-### Test: Unauthenticated Access is Blocked
+
+### Test with MCP Inspector
 
 ```bash
-npx @modelcontextprotocol/inspector@latest \
-  --cli http://localhost:8080/mcp \
-  --transport http \
-  --header "mcp-protocol-version: 2025-03-26" \
-  --method tools/list
+npx @modelcontextprotocol/inspector@latest
 ```
+
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- Click Connect
+
+![mcpfail1](https://github.com/user-attachments/assets/0857642b-d289-438b-89f5-9c93b755bced)
 
 This should fail with a **401 Unauthorized** — no JWT token provided.
 
 ### Test: Authenticated Access Works
 
-```bash
-npx @modelcontextprotocol/inspector@latest \
-  --cli http://localhost:8080/mcp \
-  --transport http \
-  --header "mcp-protocol-version: 2025-03-26" \
-  --header "Authorization: Bearer $ALICE_JWT" \
-  --method tools/list
-```
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- **Custom Headers** Authorization
+- with `Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw`
+- Click Connect
+
+ ![mcpsuccess](https://github.com/user-attachments/assets/4e293324-f0cf-4a03-a7d2-fe92fb4ab3a8)
+
 
 Now you should see all tools from both servers. Both Alice and Bob can access everything — we haven't restricted tools yet.
 
@@ -493,6 +498,8 @@ Now for the powerful part. Let's say:
 - **Alice** (dev team) should only see the fetch tool — she uses it for research
 - **Bob** (ops team) should see everything — he needs full access for operations
 
+
+
 Create a tool access policy:
 
 ```bash
@@ -500,34 +507,49 @@ kubectl apply -f- <<EOF
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
-  name: tool-access-control
+  name: fetcher-rbac
   namespace: agentgateway-system
 spec:
   targetRefs:
-  - group: agentgateway.dev
-    kind: AgentgatewayBackend
-    name: mcp-federated
-  mcp:
-    toolAccess:
-    - cel: 'jwt.sub == "bob"'
-    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher-80")'
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: mcp-website-fetcher-80
+  backend:
+    mcp:
+      authorization:
+        action: Deny          # default-deny: block unless a rule matches
+        policy:
+          matchExpressions:
+            # Alice can ONLY use the fetch tool
+            - 'jwt.sub == "alice" && mcp.tool.name == "mcp-website-fetcher-80_fetch"'
+            # Bob gets full access (no tool constraint)
+            - 'jwt.sub == "bob"'
 EOF
 ```
 
 This policy says:
-- If `sub=bob` → show **all** tools (no tool name filter)
-- If `sub=alice` → only show tools whose name starts with `mcp-website-fetcher`
+- action: Deny means everything is denied by default — access is only granted when a matchExpressions rule matches.
+- Alice's rule combines her identity (jwt.sub == "alice") and a specific tool (mcp.tool.name == "fetch"), so she can only call fetch. Any other tool call from Alice is denied.
+- Bob's rule only checks identity with no tool constraint, so he gets access to all tools on that backend.
+- The expressions use OR logic between them — if any expression matches, access is allowed.
+
+If you later need to give Alice access to a second tool, you'd just add another expression:
+yamlmatchExpressions:
+```bash
+  - 'jwt.sub == "alice" && mcp.tool.name == "fetch"'
+  - 'jwt.sub == "alice" && mcp.tool.name == "some_other_tool"'
+  - 'jwt.sub == "bob"'
+```
 
 ### Verify: Alice Only Sees Time Tools
 
-```bash
-npx @modelcontextprotocol/inspector@latest \
-  --cli http://localhost:8080/mcp \
-  --transport http \
-  --header "mcp-protocol-version: 2025-03-26" \
-  --header "Authorization: Bearer $ALICE_JWT" \
-  --method tools/list
-```
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- **Custom Headers** Authorization
+- with `Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw`
+
+
 
 Alice should only see:
 - `mcp-website-fetcher-80_fetch`
