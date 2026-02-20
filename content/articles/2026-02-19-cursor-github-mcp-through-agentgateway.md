@@ -149,7 +149,7 @@ Key details:
 - **`tls.sni`** — required for HTTPS on port 443
 - **`auth.secretRef`** — injects the `Authorization: Bearer <PAT>` header automatically
 
-## Step 5: Create the HTTPRoute and Policy
+## Step 5: Create the HTTPRoute
 
 ```bash
 kubectl apply -f- <<EOF
@@ -171,20 +171,6 @@ spec:
     - name: github-mcp-backend
       group: agentgateway.dev
       kind: AgentgatewayBackend
----
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayPolicy
-metadata:
-  name: github-mcp-policy
-  namespace: agentgateway-system
-spec:
-  targetRefs:
-  - kind: HTTPRoute
-    name: github-mcp
-  backend:
-    mcp:
-      toolAuth:
-        defaultAction: Allow
 EOF
 ```
 
@@ -336,7 +322,6 @@ You should see MCP connection events and tool call forwards to `api.githubcopilo
 ## Cleanup
 
 ```bash
-kubectl delete agentgatewaypolicy github-mcp-policy -n agentgateway-system
 kubectl delete httproute github-mcp -n agentgateway-system
 kubectl delete agentgatewaybackend github-mcp-backend -n agentgateway-system
 kubectl delete secret github-mcp-secret -n agentgateway-system
