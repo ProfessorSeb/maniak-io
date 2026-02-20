@@ -513,16 +513,16 @@ spec:
   targetRefs:
     - group: agentgateway.dev
       kind: AgentgatewayBackend
-      name: mcp-website-fetcher-80
+      name: mcp-federated
   backend:
     mcp:
       authorization:
-        action: Deny          # default-deny: block unless a rule matches
+        action: Allow
         policy:
           matchExpressions:
-            # Alice can ONLY use the fetch tool
-            - 'jwt.sub == "alice" && mcp.tool.name == "mcp-website-fetcher-80_fetch"'
-            # Bob gets full access (no tool constraint)
+            # Alice can ONLY use the fetch tool on the website-fetcher target
+            - 'jwt.sub == "alice" && mcp.tool.name == "fetch" && mcp.tool.target == "mcp-website-fetcher-80_fetch"'
+            # Bob gets full access
             - 'jwt.sub == "bob"'
 EOF
 ```
