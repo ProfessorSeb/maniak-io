@@ -550,31 +550,7 @@ Alice can call the time tools she's authorized to use. Trying to call `mcp-serve
 
 ## Adding More MCP Servers
 
-The beauty of label-based federation: adding a new server is just a deployment + service with the right label. No AgentGateway config changes needed.
-
-For example, to add a Slack MCP server:
-
-```bash
-kubectl apply -f- <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: slack-mcp
-  namespace: agentgateway-system
-  labels:
-    app: slack-mcp
-    mcp-federation: "true"
-spec:
-  ports:
-  - port: 3000
-    targetPort: 3000
-    appProtocol: kgateway.dev/mcp
-  selector:
-    app: slack-mcp
-EOF
-```
-
-The `mcp-federation: "true"` label means AgentGateway automatically picks it up. Clients connecting to `/mcp` will now see Slack tools alongside the existing time and everything tools — zero changes to the gateway, backend, or route.
+The beauty of label-based federation: adding a new server is just a deployment + service with the `mcp-federation: "true"` label. No AgentGateway config changes needed — the backend's label selector picks it up automatically.
 
 ## IDE Configuration with JWT Auth
 
