@@ -64,12 +64,12 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/downloa
 Install the AgentGateway CRDs and control plane:
 
 ```bash
-helm upgrade -i agentgateway-crds \
-  oci://ghcr.io/kgateway-dev/charts/agentgateway-crds
-
-helm upgrade -i agentgateway \
-  oci://ghcr.io/kgateway-dev/charts/agentgateway \
-  -n agentgateway-system --create-namespace
+helm upgrade -i --create-namespace \
+  --namespace agentgateway-system \
+  --version v2.2.1 agentgateway-crds oci://ghcr.io/kgateway-dev/charts/agentgateway-crds
+  
+helm upgrade -i -n agentgateway-system agentgateway oci://ghcr.io/kgateway-dev/charts/agentgateway \
+--version v2.2.1
 ```
 
 Verify the control plane is running:
@@ -93,7 +93,7 @@ spec:
   gatewayClassName: agentgateway
   listeners:
   - name: http
-    port: 80
+    port: 8080
     protocol: HTTP
 EOF
 ```
