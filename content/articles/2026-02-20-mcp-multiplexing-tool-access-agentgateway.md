@@ -427,13 +427,13 @@ We'll use pre-generated tokens for two users. You can generate your own with the
 Save the JWT for Alice (dev team):
 
 ```bash
-export ALICE_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJ0ZWFtIjoiZGV2IiwiZXhwIjoyMDczNjcwNDgyLCJuYmYiOjE3NjYwODY0ODIsImlhdCI6MTc2NjA4NjQ4Mn0.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DneT42JzNIqBkz3S2_E1VE7S1XPCje1paL7MTf58Gdg7a5FJfVlBz-bOLM-YQD0FxjGsGh1zseh7hJ7Sv8MqpH62bWnGjLnKfHqBA"
+export ALICE_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw"
 ```
 
 Save the JWT for Bob (ops team):
 
 ```bash
-export BOB_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYm9iIiwidGVhbSI6Im9wcyIsImV4cCI6MjA3MzY3MDQ4MiwibmJmIjoxNzY2MDg2NDgyLCJpYXQiOjE3NjYwODY0ODJ9.jnRqMp3f-S0YHZEf7hPTtpWCHJRpvxqCXqZPDAzBlygdY5cC3LJ0CbGfKCVPEYrDW27mEqh4Dk6GLo1b_YvhAE5HqnUBp87D2x0bxyO_GhZv6DJKWIV14-aaYMj7J5Q3S55PLWiaT1hGjrQ4RFHWI6ol-4aCNnBUBh6VT16J1mDgnfrXN-DjIGP0u34fGNn7i8u3lK3pBKUqJK-5RfuKjAxQc-BtRpnbSHm2P3WHGPT63RR8tTwWr37_TUQY0N4cWVnlR2VHBV4jGkNbLERmSuq-FJ-ue8CY_MWq_mnKVs3tnlqD7DBRX2iA4h-HfNVJP_qlGz7DOZOqPeq0XgPyv8w"
+export BOB_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYm9iIiwiZXhwIjoyMDczNjcwNDgyLCJuYmYiOjE3NjYwODY0ODIsImlhdCI6MTc2NjA4NjQ4Mn0.ZHAw7nbANhnYvBBknN9_ORCQZ934Vv_vAelx8odC3bsC5Yesif7ZSsnEp9zFjGG6wBvvV3LrtuBuWx9mTYUZS6rwWUKsvDXyheZXYRmXndOqpY0gcJJaulGGqXncQDkmqDA7ZeJLG1s0a6shMXRs6BbV370mYpu8-1dZdtikyVL3pC27QNei35JhfqdYuMw1fMptTVzypx437l9j2htxqtIVgdWUc1iKD9kNKpkJ5O6SNbi6xm267jZ3V_Ns75p_UjLq7krQIUl1W0mB0ywzosFkrRcyXsBsljXec468hgHEARW2lec8FEe-i6uqRuVkFD-AeXMfPhXzqdwysjG_og"
 ```
 
 ### Create the JWT Validation Policy
@@ -445,32 +445,20 @@ kubectl apply -f- <<EOF
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
-  name: jwt-auth
+  name: jwt
   namespace: agentgateway-system
 spec:
   targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
   traffic:
     jwtAuthentication:
       mode: Strict
       providers:
-      - issuer: solo.io
-        jwks:
-          inline: |
-            {
-              "keys": [
-                {
-                  "kty": "RSA",
-                  "kid": "5891645032159894383",
-                  "n": "4ixh8MjCGo3VktYy66DFnj2blFfxPHMHnh84VKFSZrXJFN0pPDuXfMx4iGmTKFWwJBBLJO0G7VKDiSJqIr0STMXZ3G3IG-nFBIjJJHR3OQkEUkqC3RlWOQy9lVhcmEp4zGqsEqNyCTMZ_4_hSVnOKhQ_8fYSTpfRbtKfhVwTjKI0vSYGPZvD4JN-LTJ2xMvDOPq-9TS6iT7SuFRoTH5dFvs4m7jEgP-Bxq5ZFpzSJFq-FsBvMnq-SyrNpAx3S3aEHhmfJBp3YsBB3sJfLQFbV7Oln-pTbfI3uQySxeCmWfMLT-YEuNwK8vsExjfWzI9LdvTODQ7BEstJVQQaaDqRiw",
-                  "e": "AQAB",
-                  "alg": "RS256",
-                  "use": "sig"
-                }
-              ]
-            }
+        - issuer: solo.io
+          jwks:
+            inline: '{"keys":[{"use":"sig","kty":"RSA","kid":"5891645032159894383","n":"5Zb1l_vtAp7DhKPNbY5qLzHIxDEIm3lpFYhBTiZyGBcnre8Y8RtNAnHpVPKdWohqhbihbVdb6U7m1E0VhLq7CS7k2Ng1LcQtVN3ekaNyk09NHuhl9LCgqXT4pATt6fYTKtZ__tEw4XKt3QqVcw7hV0YaNVC5xXGYVBh5_2-K5aW9u2LQ7FSax0jPhWdoUB3KbOQfWNOA3RwOqYn4gmc9wVToVLv6bXCVhIYWKnAVcX89C00eM7uBHENvOydD14-ZnLb4pzz2VGbU6U65odpw_i4r_mWXvoUgwogXAXp80TsYwMzLHcFo4GVDNkaH0hjuLJCeISPfYtbUJK6fFaZGBw","e":"AQAB","x5c":["MIIC3jCCAcagAwIBAgIBJTANBgkqhkiG9w0BAQsFADAXMRUwEwYDVQQKEwxrZ2F0ZXdheS5kZXYwHhcNMjUxMjE4MTkzNDQyWhcNMjUxMjE4MjEzNDQyWjAXMRUwEwYDVQQKEwxrZ2F0ZXdheS5kZXYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDllvWX++0CnsOEo81tjmovMcjEMQibeWkViEFOJnIYFyet7xjxG00CcelU8p1aiGqFuKFtV1vpTubUTRWEursJLuTY2DUtxC1U3d6Ro3KTT00e6GX0sKCpdPikBO3p9hMq1n/+0TDhcq3dCpVzDuFXRho1ULnFcZhUGHn/b4rlpb27YtDsVJrHSM+FZ2hQHcps5B9Y04DdHA6pifiCZz3BVOhUu/ptcJWEhhYqcBVxfz0LTR4zu4EcQ287J0PXj5mctvinPPZUZtTpTrmh2nD+Liv+ZZe+hSDCiBcBenzROxjAzMsdwWjgZUM2RofSGO4skJ4hI99i1tQkrp8VpkYHAgMBAAGjNTAzMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAMBgNVHRMBAf8EAjAAMA0GCSqGSIb3DQEBCwUAA4IBAQBeA8lKrnfRjo18RkLBqVKuO441nZLFGKrJwpJu+G5cVOJ06txKsZEXE3qu2Yh9abeOJkC+SsWMELWHYNJlip4JGE0Oby7chol+ahrwBILUixBG/qvhwJG6YntoDZi0wbNFqQiQ6FZt89awcs2pdxL5thYR/Pqx4QXN8oKd4DNkcX5vWdz9P6nstLUmrEBV4EFs7fY0L/n3ssDvyZ3xfpM1Q/CQFz4OqB4U20+Qt6x7eap6qhTSBZt8rZWIiy57BsSww12gLYYU1x+Klg1AdPsVrcuvVdiZM1ru232Ihip0rYH7Mf7vcN+HLUrjpXvMoeyWRwbB61GPsXz+BTksqoql"]}]}'
 EOF
 ```
 
