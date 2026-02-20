@@ -172,20 +172,6 @@ spec:
     - name: github-mcp-backend
       group: agentgateway.dev
       kind: AgentgatewayBackend
----
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayPolicy
-metadata:
-  name: github-mcp-policy
-  namespace: agentgateway-system
-spec:
-  targetRefs:
-  - kind: HTTPRoute
-    name: github-mcp
-  backend:
-    mcp:
-      toolAuth:
-        defaultAction: Allow
 EOF
 ```
 
