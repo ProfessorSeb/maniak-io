@@ -111,7 +111,7 @@ GitHub hosts a remote MCP server at `https://api.githubcopilot.com/mcp/` that su
 Create a secret with your GitHub PAT for backend authentication:
 
 ```bash
-kubectl create secret generic github-pat \
+kubectl create secret generic github-mcp-secret \
   -n agentgateway-system \
   --from-literal=Authorization="Bearer ghp_your_token_here"
 ```
@@ -123,27 +123,34 @@ kubectl apply -f- <<EOF
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
 metadata:
-  name: github-mcp
+  name: github-mcp-backend
   namespace: agentgateway-system
 spec:
   mcp:
     targets:
-    - name: github
+    - name: mcp-target
       static:
         host: api.githubcopilot.com
         port: 443
-        protocol: StreamableHTTP
+        path: /mcp/
   policies:
     auth:
       secretRef:
-        name: github-pat
-        namespace: agentgateway-system
+        name: github-mcp-secret
+    tls:
+      sni: api.githubcopilot.com
 EOF
 ```
 
-## Step 5: Create the MCP HTTPRoute
+A few things to note:
 
-Route traffic from the AgentGateway proxy to the GitHub MCP backend:
+- **`path: /mcp/`** — GitHub's MCP endpoint path
+- **`tls.sni`** — required since we're connecting to a remote HTTPS endpoint on port 443
+- **`auth.secretRef`** — injects the `Authorization: Bearer <PAT>` header on every request to GitHub
+
+## Step 5: Create the MCP HTTPRoute and Policy
+
+Route traffic from the AgentGateway proxy to the GitHub MCP backend, and add an `AgentgatewayPolicy` to allow tool calls:
 
 ```bash
 kubectl apply -f- <<EOF
@@ -157,12 +164,32 @@ spec:
   - name: agentgateway-proxy
     namespace: agentgateway-system
   rules:
-  - backendRefs:
-    - name: github-mcp
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /github
+    backendRefs:
+    - name: github-mcp-backend
       group: agentgateway.dev
       kind: AgentgatewayBackend
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: github-mcp-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - kind: HTTPRoute
+    name: github-mcp
+  backend:
+    mcp:
+      toolAuth:
+        defaultAction: Allow
 EOF
 ```
+
+The `AgentgatewayPolicy` with `toolAuth.defaultAction: Allow` ensures all MCP tool calls are forwarded. In production, you could restrict this to specific tools or add JWT authentication.
 
 ## Step 6: Connect Cursor
 
@@ -178,7 +205,7 @@ Leave that running in a separate terminal. Now create or update `~/.cursor/mcp.j
 {
   "mcpServers": {
     "github": {
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:8080/github/mcp",
       "transport": "streamable-http"
     }
   }
@@ -211,14 +238,16 @@ You should see MCP connection events and tool call forwards to `api.githubcopilo
 
 - **Add more MCP servers**: Slack, Notion, Jira — all behind the same gateway
 - **Security policies**: JWT auth, prompt guards, rate limiting with `AgentgatewayPolicy`
+- **Tool-level RBAC**: Restrict which GitHub tools specific users or teams can access
 - **Multi-IDE support**: The same AgentGateway endpoint works for Claude Desktop, VS Code with Copilot, and any MCP-compatible client
 
 ## Cleanup
 
 ```bash
+kubectl delete agentgatewaypolicy github-mcp-policy -n agentgateway-system
 kubectl delete httproute github-mcp -n agentgateway-system
-kubectl delete agentgatewaybackend github-mcp -n agentgateway-system
-kubectl delete secret github-pat -n agentgateway-system
+kubectl delete agentgatewaybackend github-mcp-backend -n agentgateway-system
+kubectl delete secret github-mcp-secret -n agentgateway-system
 kind delete cluster --name agentgateway
 ```
 
