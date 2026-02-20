@@ -452,18 +452,18 @@ spec:
   - group: gateway.networking.k8s.io
     kind: Gateway
     name: mcp-gateway
-  jwt:
-    providers:
-    - name: solo-jwt
-      issuer: solo.io
-      jwks:
-        local:
-          key: |
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+      - issuer: solo.io
+        jwks:
+          inline: |
             {
               "keys": [
                 {
                   "kty": "RSA",
-                  "kid": "58916450321598943383",
+                  "kid": "5891645032159894383",
                   "n": "4ixh8MjCGo3VktYy66DFnj2blFfxPHMHnh84VKFSZrXJFN0pPDuXfMx4iGmTKFWwJBBLJO0G7VKDiSJqIr0STMXZ3G3IG-nFBIjJJHR3OQkEUkqC3RlWOQy9lVhcmEp4zGqsEqNyCTMZ_4_hSVnOKhQ_8fYSTpfRbtKfhVwTjKI0vSYGPZvD4JN-LTJ2xMvDOPq-9TS6iT7SuFRoTH5dFvs4m7jEgP-Bxq5ZFpzSJFq-FsBvMnq-SyrNpAx3S3aEHhmfJBp3YsBB3sJfLQFbV7Oln-pTbfI3uQySxeCmWfMLT-YEuNwK8vsExjfWzI9LdvTODQ7BEstJVQQaaDqRiw",
                   "e": "AQAB",
                   "alg": "RS256",
@@ -480,7 +480,7 @@ EOF
 npx @modelcontextprotocol/inspector@latest \
   --cli http://localhost:8080/mcp \
   --transport http \
-  --header "mcp-protocol-version: 2024-11-05" \
+  --header "mcp-protocol-version: 2025-03-26" \
   --method tools/list
 ```
 
@@ -492,7 +492,7 @@ This should fail with a **401 Unauthorized** — no JWT token provided.
 npx @modelcontextprotocol/inspector@latest \
   --cli http://localhost:8080/mcp \
   --transport http \
-  --header "mcp-protocol-version: 2024-11-05" \
+  --header "mcp-protocol-version: 2025-03-26" \
   --header "Authorization: Bearer $ALICE_JWT" \
   --method tools/list
 ```
@@ -536,7 +536,7 @@ This policy says:
 npx @modelcontextprotocol/inspector@latest \
   --cli http://localhost:8080/mcp \
   --transport http \
-  --header "mcp-protocol-version: 2024-11-05" \
+  --header "mcp-protocol-version: 2025-03-26" \
   --header "Authorization: Bearer $ALICE_JWT" \
   --method tools/list
 ```
