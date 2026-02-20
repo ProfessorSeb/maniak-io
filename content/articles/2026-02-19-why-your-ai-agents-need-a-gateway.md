@@ -1,5 +1,5 @@
 ---
-title: "Why Your AI Agents Need a Gateway (And Why It Shouldn't Be Your Cloud Provider's)"
+title: "AWS AgentCore with AgentGateway and Okta OAuth"
 publishDate: 2026-02-19
 author: "Sebastian Maniak"
 description: "You wouldn't deploy microservices without an API gateway. So why are teams deploying AI agents with direct, ungoverned access to LLMs and external tools? AgentGateway fixes this."
