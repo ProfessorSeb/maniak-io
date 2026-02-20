@@ -121,9 +121,7 @@ kubectl rollout status deploy/mcp-gateway -n agentgateway-system --timeout=60s
 
 ### Server 1: mcp-server-everything
 
-This server provides general utility tools like `echo`, `add`, `longRunningOperation`, and more.
-
-> **Note**: The official `mcp/*` Docker Hub images are **stdio-based** — they don't listen on a port and will exit immediately in Kubernetes. We use [supergateway](https://github.com/supercorp-ai/supergateway) to wrap each stdio server and expose it over streamable HTTP, which is exactly the transport AgentGateway's multiplex feature requires.
+This is the reference MCP test server from the Model Context Protocol project. It provides utility tools like `echo`, `add`, `longRunningOperation`, and more. The `streamableHttp` argument tells it to listen over HTTP instead of stdio — which is exactly the transport AgentGateway's multiplex feature requires.
 
 ```bash
 kubectl apply -f- <<EOF
@@ -132,6 +130,8 @@ kind: Deployment
 metadata:
   name: mcp-server-everything
   namespace: agentgateway-system
+  labels:
+    app: mcp-server-everything
 spec:
   replicas: 1
   selector:
@@ -143,34 +143,12 @@ spec:
         app: mcp-server-everything
     spec:
       containers:
-      - name: supergateway
-        image: node:22-slim
+      - name: mcp-server-everything
+        image: node:20-alpine
         command: ["npx"]
-        args:
-          - "-y"
-          - "supergateway"
-          - "--stdio"
-          - "npx -y @modelcontextprotocol/server-everything"
-          - "--port"
-          - "8000"
-          - "--outputTransport"
-          - "streamableHttp"
-          - "--healthEndpoint"
-          - "/healthz"
+        args: ["-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
         ports:
-        - containerPort: 8000
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 8000
-          initialDelaySeconds: 90
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8000
-          initialDelaySeconds: 90
-          periodSeconds: 15
+        - containerPort: 3001
 ---
 apiVersion: v1
 kind: Service
@@ -181,18 +159,20 @@ metadata:
     app: mcp-server-everything
     mcp-federation: "true"
 spec:
-  ports:
-  - port: 8000
-    targetPort: 8000
-    appProtocol: kgateway.dev/mcp
   selector:
     app: mcp-server-everything
+  ports:
+  - protocol: TCP
+    port: 3001
+    targetPort: 3001
+    appProtocol: kgateway.dev/mcp
+  type: ClusterIP
 EOF
 ```
 
 ### Server 2: mcp-website-fetcher
 
-This server provides a `fetch` tool that can retrieve and extract content from any URL — useful for giving your AI assistant web browsing capabilities.
+This server provides a `fetch` tool that can retrieve and extract content from any URL — useful for giving your AI assistant web browsing capabilities. It's already HTTP-native, no wrapper needed.
 
 ```bash
 kubectl apply -f- <<EOF
@@ -202,7 +182,6 @@ metadata:
   name: mcp-website-fetcher
   namespace: agentgateway-system
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: mcp-website-fetcher
@@ -212,34 +191,9 @@ spec:
         app: mcp-website-fetcher
     spec:
       containers:
-      - name: supergateway
-        image: node:22-slim
-        command: ["npx"]
-        args:
-          - "-y"
-          - "supergateway"
-          - "--stdio"
-          - "npx -y @modelcontextprotocol/server-fetch"
-          - "--port"
-          - "8000"
-          - "--outputTransport"
-          - "streamableHttp"
-          - "--healthEndpoint"
-          - "/healthz"
-        ports:
-        - containerPort: 8000
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 8000
-          initialDelaySeconds: 90
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8000
-          initialDelaySeconds: 90
-          periodSeconds: 15
+      - name: mcp-website-fetcher
+        image: ghcr.io/peterj/mcp-website-fetcher:main
+        imagePullPolicy: Always
 ---
 apiVersion: v1
 kind: Service
@@ -250,12 +204,13 @@ metadata:
     app: mcp-website-fetcher
     mcp-federation: "true"
 spec:
-  ports:
-  - port: 8000
-    targetPort: 8000
-    appProtocol: kgateway.dev/mcp
   selector:
     app: mcp-website-fetcher
+  ports:
+  - port: 80
+    targetPort: 8000
+    appProtocol: kgateway.dev/mcp
+  type: ClusterIP
 EOF
 ```
 
@@ -337,10 +292,10 @@ Connect with:
 
 Click **Tools** → **List Tools**. You should see tools from **both** servers, namespaced:
 
-- `mcp-server-everything-8000_echo` — echo a message
-- `mcp-server-everything-8000_add` — add two numbers
-- `mcp-server-everything-8000_longRunningOperation` — simulate a long task
-- `mcp-website-fetcher-8000_fetch` — fetch and extract content from a URL
+- `mcp-server-everything-3001_echo` — echo a message
+- `mcp-server-everything-3001_add` — add two numbers
+- `mcp-server-everything-3001_longRunningOperation` — simulate a long task
+- `mcp-website-fetcher-80_fetch` — fetch and extract content from a URL
 
 **One endpoint. Two servers. All tools.**
 
@@ -531,7 +486,7 @@ spec:
   mcp:
     toolAccess:
     - cel: 'jwt.sub == "bob"'
-    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher-8000")'
+    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher-80")'
 EOF
 ```
 
@@ -551,7 +506,7 @@ npx @modelcontextprotocol/inspector@latest \
 ```
 
 Alice should only see:
-- `mcp-website-fetcher-8000_fetch`
+- `mcp-website-fetcher-80_fetch`
 
 The `echo`, `add`, and other everything-server tools are **hidden** from Alice.
 
@@ -577,11 +532,11 @@ npx @modelcontextprotocol/inspector@latest \
   --header "mcp-protocol-version: 2024-11-05" \
   --header "Authorization: Bearer $ALICE_JWT" \
   --method tools/call \
-  --tool-name mcp-website-fetcher-8000_fetch \
+  --tool-name mcp-website-fetcher-80_fetch \
   --tool-arg url=https://agentgateway.dev
 ```
 
-Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-8000_echo` would be denied.
+Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-3001_echo` would be denied.
 
 ---
 
