@@ -326,6 +326,10 @@ Click **Tools** → **List Tools**. You should see tools from **both** servers, 
 - `mcp-server-everything-3001_longRunningOperation` — simulate a long task
 - `mcp-website-fetcher-80_fetch` — fetch and extract content from a URL
 
+
+![mcpsuccess](https://github.com/user-attachments/assets/e2a434dc-5ad0-4c74-9d63-c8b156e70219)
+
+
 **One endpoint. Two servers. All tools.**
 
 ---
