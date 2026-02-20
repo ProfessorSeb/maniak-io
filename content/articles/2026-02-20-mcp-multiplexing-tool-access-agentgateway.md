@@ -1,25 +1,29 @@
 ---
-title: "MCP Multiplexing with AgentGateway"
+title: "MCP Multiplexing and Tool Access Control with AgentGateway"
 publishDate: 2026-02-20
 author: "Sebastian Maniak"
-description: "Federate multiple MCP servers behind a single endpoint with AgentGateway OSS so clients connect once and see all available tools."
+description: "Federate multiple MCP servers behind a single endpoint with AgentGateway OSS — then lock down tool access with JWT-based RBAC so agents only see the tools they're allowed to use."
 ---
 
 ## Introduction
 
 As your agentic AI environment grows, you end up with a sprawl of MCP servers — one for time utilities, one for general-purpose tools, one for Slack, another for GitHub. Each server exposes different tools, runs on a different port, and needs its own connection configuration.
 
-Your MCP clients (Cursor, Claude Desktop, VS Code) shouldn't need to know about every server individually. They should connect to **one endpoint** and see **all available tools**.
+Your MCP clients (Cursor, Claude Desktop, VS Code) shouldn't need to know about every server individually. They should connect to **one endpoint** and see **all available tools** — while you control exactly **which tools each user or agent can access**.
 
-This guide walks you through **MCP Multiplexing** — federating multiple MCP servers behind a single AgentGateway endpoint.
+This guide walks you through two powerful AgentGateway features:
 
-We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp-website-fetcher` for fetching web content), multiplex them behind AgentGateway, and connect from any IDE.
+1. **MCP Multiplexing** — federate multiple MCP servers behind a single gateway endpoint
+2. **Tool Access Control** — use JWT-based RBAC to restrict which tools are visible per user
+
+We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp-website-fetcher` for fetching web content), multiplex them behind AgentGateway, connect from any IDE, and then lock down tool access so only authorized users can see specific tools.
 
 ## What You Get
 
 - **One endpoint, many servers**: Clients connect to `/mcp` and see tools from all federated servers
 - **Automatic tool namespacing**: Tools are prefixed with the server name to avoid conflicts
 - **Label-based federation**: Add servers by just adding a Kubernetes label — no config changes
+- **JWT-based tool RBAC**: Control tool visibility per user based on JWT claims
 - **IDE-agnostic**: Works with Cursor, VS Code, Claude Code, Windsurf, OpenCode
 
 ## Architecture
@@ -34,8 +38,11 @@ We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp
 ├──────────────┤  │       │  /mcp endpoint   │       │  (echo, add, etc.)   │
 │   Windsurf   │──┘       │                  │──────▶├──────────────────────┤
 └──────────────┘          │  Multiplexing    │       │  mcp-website-fetcher │
-                          └──────────────────┘       │  (fetch web content) │
-                                                     └──────────────────────┘
+                          │  + Tool RBAC     │       │  (fetch web content) │
+                          └──────────────────┘       └──────────────────────┘
+                            │ JWT validation
+                            │ CEL-based tool filtering
+                            │ OTLP traces
 ```
 
 ## Prerequisites
@@ -409,13 +416,212 @@ The IDE doesn't know or care that these tools come from different servers. It's 
 
 ---
 
+## Step 9: Add Tool Access Control with JWT RBAC
+
+Now let's lock things down. We'll configure AgentGateway to validate JWT tokens and restrict which tools each user can see.
+
+### Generate JWT Tokens
+
+We'll use pre-generated tokens for two users. You can generate your own with the [JWT generator tool](https://github.com/kgateway-dev/kgateway/blob/main/hack/utils/jwt/jwt-generator.go).
+
+Save the JWT for Alice (dev team):
+
+```bash
+export ALICE_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw"
+```
+
+Save the JWT for Bob (ops team):
+
+```bash
+export BOB_JWT="eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYm9iIiwiZXhwIjoyMDczNjcwNDgyLCJuYmYiOjE3NjYwODY0ODIsImlhdCI6MTc2NjA4NjQ4Mn0.ZHAw7nbANhnYvBBknN9_ORCQZ934Vv_vAelx8odC3bsC5Yesif7ZSsnEp9zFjGG6wBvvV3LrtuBuWx9mTYUZS6rwWUKsvDXyheZXYRmXndOqpY0gcJJaulGGqXncQDkmqDA7ZeJLG1s0a6shMXRs6BbV370mYpu8-1dZdtikyVL3pC27QNei35JhfqdYuMw1fMptTVzypx437l9j2htxqtIVgdWUc1iKD9kNKpkJ5O6SNbi6xm267jZ3V_Ns75p_UjLq7krQIUl1W0mB0ywzosFkrRcyXsBsljXec468hgHEARW2lec8FEe-i6uqRuVkFD-AeXMfPhXzqdwysjG_og"
+```
+
+### Create the JWT Validation Policy
+
+First, create an `AgentgatewayPolicy` to validate JWT tokens on the gateway:
+
+```bash
+kubectl apply -f- <<EOF
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: jwt
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: solo.io
+          jwks:
+            inline: '{"keys":[{"use":"sig","kty":"RSA","kid":"5891645032159894383","n":"5Zb1l_vtAp7DhKPNbY5qLzHIxDEIm3lpFYhBTiZyGBcnre8Y8RtNAnHpVPKdWohqhbihbVdb6U7m1E0VhLq7CS7k2Ng1LcQtVN3ekaNyk09NHuhl9LCgqXT4pATt6fYTKtZ__tEw4XKt3QqVcw7hV0YaNVC5xXGYVBh5_2-K5aW9u2LQ7FSax0jPhWdoUB3KbOQfWNOA3RwOqYn4gmc9wVToVLv6bXCVhIYWKnAVcX89C00eM7uBHENvOydD14-ZnLb4pzz2VGbU6U65odpw_i4r_mWXvoUgwogXAXp80TsYwMzLHcFo4GVDNkaH0hjuLJCeISPfYtbUJK6fFaZGBw","e":"AQAB","x5c":["MIIC3jCCAcagAwIBAgIBJTANBgkqhkiG9w0BAQsFADAXMRUwEwYDVQQKEwxrZ2F0ZXdheS5kZXYwHhcNMjUxMjE4MTkzNDQyWhcNMjUxMjE4MjEzNDQyWjAXMRUwEwYDVQQKEwxrZ2F0ZXdheS5kZXYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDllvWX++0CnsOEo81tjmovMcjEMQibeWkViEFOJnIYFyet7xjxG00CcelU8p1aiGqFuKFtV1vpTubUTRWEursJLuTY2DUtxC1U3d6Ro3KTT00e6GX0sKCpdPikBO3p9hMq1n/+0TDhcq3dCpVzDuFXRho1ULnFcZhUGHn/b4rlpb27YtDsVJrHSM+FZ2hQHcps5B9Y04DdHA6pifiCZz3BVOhUu/ptcJWEhhYqcBVxfz0LTR4zu4EcQ287J0PXj5mctvinPPZUZtTpTrmh2nD+Liv+ZZe+hSDCiBcBenzROxjAzMsdwWjgZUM2RofSGO4skJ4hI99i1tQkrp8VpkYHAgMBAAGjNTAzMA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAMBgNVHRMBAf8EAjAAMA0GCSqGSIb3DQEBCwUAA4IBAQBeA8lKrnfRjo18RkLBqVKuO441nZLFGKrJwpJu+G5cVOJ06txKsZEXE3qu2Yh9abeOJkC+SsWMELWHYNJlip4JGE0Oby7chol+ahrwBILUixBG/qvhwJG6YntoDZi0wbNFqQiQ6FZt89awcs2pdxL5thYR/Pqx4QXN8oKd4DNkcX5vWdz9P6nstLUmrEBV4EFs7fY0L/n3ssDvyZ3xfpM1Q/CQFz4OqB4U20+Qt6x7eap6qhTSBZt8rZWIiy57BsSww12gLYYU1x+Klg1AdPsVrcuvVdiZM1ru232Ihip0rYH7Mf7vcN+HLUrjpXvMoeyWRwbB61GPsXz+BTksqoql"]}]}'
+EOF
+```
+
+
+### Test with MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector@latest
+```
+
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- Click Connect
+
+![mcpfail1](https://github.com/user-attachments/assets/0857642b-d289-438b-89f5-9c93b755bced)
+
+This should fail with a **401 Unauthorized** — no JWT token provided.
+
+### Test: Authenticated Access Works
+
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- **Custom Headers** Authorization
+- with `Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw`
+- Click Connect
+
+ ![mcpsuccess](https://github.com/user-attachments/assets/4e293324-f0cf-4a03-a7d2-fe92fb4ab3a8)
+
+
+Now you should see all tools from both servers. Both Alice and Bob can access everything — we haven't restricted tools yet.
+
+### Restrict Tool Access by User
+
+Now for the powerful part. Let's say:
+- **Alice** (dev team) should only see the fetch tool — she uses it for research
+- **Bob** (ops team) should see everything — he needs full access for operations
+
+
+
+Create a tool access policy:
+
+```bash
+kubectl apply -f- <<EOF
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: fetcher-rbac
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: mcp-federated
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            # Alice can ONLY use the fetch tool on the website-fetcher target
+            - 'jwt.sub == "alice" && mcp.tool.name == "fetch" && mcp.tool.target == "mcp-website-fetcher-80_fetch"'
+            # Bob gets full access
+            - 'jwt.sub == "bob"'
+EOF
+```
+
+This policy says:
+- action: Deny means everything is denied by default — access is only granted when a matchExpressions rule matches.
+- Alice's rule combines her identity (jwt.sub == "alice") and a specific tool (mcp.tool.name == "fetch"), so she can only call fetch. Any other tool call from Alice is denied.
+- Bob's rule only checks identity with no tool constraint, so he gets access to all tools on that backend.
+- The expressions use OR logic between them — if any expression matches, access is allowed.
+
+If you later need to give Alice access to a second tool, you'd just add another expression:
+yamlmatchExpressions:
+```bash
+  - 'jwt.sub == "alice" && mcp.tool.name == "fetch"'
+  - 'jwt.sub == "alice" && mcp.tool.name == "some_other_tool"'
+  - 'jwt.sub == "bob"'
+```
+
+### Verify: Alice Only Sees Time Tools
+
+Connect with:
+- **Transport**: Streamable HTTP
+- **URL**: `http://localhost:8080/mcp`
+- **Custom Headers** Authorization
+- with `Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU4OTE2NDUwMzIxNTk4OTQzODMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJzb2xvLmlvIiwic3ViIjoiYWxpY2UiLCJleHAiOjIwNzM2NzA0ODIsIm5iZiI6MTc2NjA4NjQ4MiwiaWF0IjoxNzY2MDg2NDgyfQ.C-KYZsfWwlwRw4cKHXWmjN5bwWD80P0CVYP6-mT5sX6BH3AR1xNrOApPF9X0plwVD4_AsWzVo435j1AmgBzPwIjhHPKtxXycaKEwSEHYFesyi-XCEJtaQZZVcjOJOs-12L2ZJeM_csk9EqKKSx0oj3jj6BciqBnLn6_hK9sEtoGenEVWEdOpkjRQBxk1m-rVZNY2IvxXMuj9C7jGXv_Sn3cU5w6arXWUsdoQtYTl5tmuF15nkD3DnQfLjDyz59FTKXUR_QkhXV81amejrDSTroJ42_RLC9ABXqdMORCe-Hus-f1utLURfAYGvmnEVeYJO8BFhedTR6lFLnVS0u2Fpw`
+
+
+
+Alice should only see:
+- `mcp-website-fetcher-80_fetch`
+
+The `echo`, `add`, and other everything-server tools are **hidden** from Alice.
+
+### Verify: Bob Sees All Tools
+
+```bash
+npx @modelcontextprotocol/inspector@latest \
+  --cli http://localhost:8080/mcp \
+  --transport http \
+  --header "mcp-protocol-version: 2024-11-05" \
+  --header "Authorization: Bearer $BOB_JWT" \
+  --method tools/list
+```
+
+Bob sees all tools from both servers.
+
+### Verify: Alice Can Still Call Her Allowed Tools
+
+```bash
+npx @modelcontextprotocol/inspector@latest \
+  --cli http://localhost:8080/mcp \
+  --transport http \
+  --header "mcp-protocol-version: 2024-11-05" \
+  --header "Authorization: Bearer $ALICE_JWT" \
+  --method tools/call \
+  --tool-name mcp-website-fetcher-80_fetch \
+  --tool-arg url=https://agentgateway.dev
+```
+
+Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-3001_echo` would be denied.
+
+---
+
 ## Adding More MCP Servers
 
 The beauty of label-based federation: adding a new server is just a deployment + service with the `mcp-federation: "true"` label. No AgentGateway config changes needed — the backend's label selector picks it up automatically.
 
+## IDE Configuration with JWT Auth
+
+When tool access control is enabled, your IDE needs to send the JWT token. Here's how:
+
+### Cursor
+
+```json
+{
+  "mcpServers": {
+    "federated-tools": {
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-jwt-token>"
+      }
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add federated-tools \
+  --transport sse \
+  --header "Authorization: Bearer <your-jwt-token>" \
+  http://localhost:8080/mcp
+```
+
 ## Cleanup
 
 ```bash
+kubectl delete agentgatewaypolicy jwt-auth tool-access-control -n agentgateway-system
 kubectl delete httproute mcp-route -n agentgateway-system
 kubectl delete agentgatewaybackend mcp-federated -n agentgateway-system
 kubectl delete deploy mcp-server-everything mcp-website-fetcher -n agentgateway-system
@@ -425,8 +631,12 @@ kind delete cluster --name agentgateway-mcp
 
 ## Conclusion
 
-MCP multiplexing solves one of the biggest challenges in production agentic AI environments: **server sprawl**. Developers shouldn't need to configure connections to every MCP server individually. One gateway endpoint, all tools.
+MCP multiplexing and tool access control solve two of the biggest challenges in production agentic AI environments:
 
-Federate all your MCP servers behind AgentGateway, add new servers with a label, and every connected client sees the new tools immediately. No agent code changes. No client reconfiguration.
+1. **Server sprawl** — developers shouldn't need to configure connections to every MCP server individually. One gateway endpoint, all tools.
 
-One gateway. All your tools.
+2. **Ungoverned tool access** — not every agent or user should see every tool. With JWT-based RBAC and CEL expressions, you get fine-grained, identity-aware tool filtering at the gateway level.
+
+The combination is powerful: federate all your MCP servers behind AgentGateway, then use policies to control exactly who sees what. Add new servers with a label. Restrict tools with a CEL expression. No agent code changes. No client reconfiguration.
+
+One gateway. All your tools. The right access for the right user.
