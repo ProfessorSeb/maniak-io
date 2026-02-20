@@ -16,7 +16,7 @@ This guide walks you through two powerful AgentGateway features:
 1. **MCP Multiplexing** — federate multiple MCP servers behind a single gateway endpoint
 2. **Tool Access Control** — use JWT-based RBAC to restrict which tools are visible per user
 
-We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp-server-time` for time/timezone tools), multiplex them behind AgentGateway, connect from any IDE, and then lock down tool access so only authorized users can see specific tools.
+We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp-website-fetcher` for fetching web content), multiplex them behind AgentGateway, connect from any IDE, and then lock down tool access so only authorized users can see specific tools.
 
 ## What You Get
 
@@ -37,8 +37,8 @@ We'll deploy two MCP servers (`mcp-server-everything` for utility tools and `mcp
 │  Claude Code │──┼─MCP──▶│  AgentGateway    │──────▶│  mcp-server-everything│
 ├──────────────┤  │       │  /mcp endpoint   │       │  (echo, add, etc.)   │
 │   Windsurf   │──┘       │                  │──────▶├──────────────────────┤
-└──────────────┘          │  Multiplexing    │       │  mcp-server-time     │
-                          │  + Tool RBAC     │       │  (get_time, timezone)│
+└──────────────┘          │  Multiplexing    │       │  mcp-website-fetcher │
+                          │  + Tool RBAC     │       │  (fetch web content) │
                           └──────────────────┘       └──────────────────────┘
                             │ JWT validation
                             │ CEL-based tool filtering
@@ -164,40 +164,40 @@ spec:
 EOF
 ```
 
-### Server 2: mcp-server-time
+### Server 2: mcp-website-fetcher
 
-This server provides time and timezone tools like `get_current_time` and `convert_time`.
+This server provides a `fetch` tool that can retrieve and extract content from any URL — useful for giving your AI assistant web browsing capabilities.
 
 ```bash
 kubectl apply -f- <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mcp-server-time
+  name: mcp-website-fetcher
   namespace: agentgateway-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: mcp-server-time
+      app: mcp-website-fetcher
   template:
     metadata:
       labels:
-        app: mcp-server-time
+        app: mcp-website-fetcher
     spec:
       containers:
-      - name: mcp-server-time
-        image: docker.io/mcp/time:latest
+      - name: mcp-website-fetcher
+        image: docker.io/mcp/fetch:latest
         ports:
         - containerPort: 3001
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: mcp-server-time
+  name: mcp-website-fetcher
   namespace: agentgateway-system
   labels:
-    app: mcp-server-time
+    app: mcp-website-fetcher
     mcp-federation: "true"
 spec:
   ports:
@@ -205,7 +205,7 @@ spec:
     targetPort: 3001
     appProtocol: kgateway.dev/mcp
   selector:
-    app: mcp-server-time
+    app: mcp-website-fetcher
 EOF
 ```
 
@@ -213,7 +213,7 @@ Wait for both servers to be ready:
 
 ```bash
 kubectl rollout status deploy/mcp-server-everything -n agentgateway-system --timeout=60s
-kubectl rollout status deploy/mcp-server-time -n agentgateway-system --timeout=60s
+kubectl rollout status deploy/mcp-website-fetcher -n agentgateway-system --timeout=60s
 ```
 
 > **Key detail**: Both services have the label `mcp-federation: "true"` and `appProtocol: kgateway.dev/mcp`. This is how AgentGateway discovers and federates them.
@@ -240,7 +240,7 @@ spec:
 EOF
 ```
 
-This single backend automatically discovers both `mcp-server-everything` and `mcp-server-time` — and any future MCP server you deploy with the `mcp-federation: "true"` label.
+This single backend automatically discovers both `mcp-server-everything` and `mcp-website-fetcher` — and any future MCP server you deploy with the `mcp-federation: "true"` label.
 
 ## Step 6: Create the HTTPRoute
 
@@ -290,8 +290,7 @@ Click **Tools** → **List Tools**. You should see tools from **both** servers, 
 - `mcp-server-everything-3001_echo` — echo a message
 - `mcp-server-everything-3001_add` — add two numbers
 - `mcp-server-everything-3001_longRunningOperation` — simulate a long task
-- `mcp-server-time-3001_get_current_time` — get current time in a timezone
-- `mcp-server-time-3001_convert_time` — convert between timezones
+- `mcp-website-fetcher_fetch` — fetch and extract content from a URL
 
 **One endpoint. Two servers. All tools.**
 
@@ -381,9 +380,9 @@ Add to `opencode.json`:
 
 Now try asking your IDE:
 
-- *"What time is it in Tokyo?"* — uses the time server
 - *"Echo back: AgentGateway is awesome"* — uses the everything server
 - *"Add 42 and 58"* — uses the everything server
+- *"Fetch the content from https://agentgateway.dev"* — uses the website fetcher
 
 The IDE doesn't know or care that these tools come from different servers. It's all one MCP endpoint.
 
@@ -475,7 +474,7 @@ Now you should see all tools from both servers. Both Alice and Bob can access ev
 ### Restrict Tool Access by User
 
 Now for the powerful part. Let's say:
-- **Alice** (dev team) should only see the time tools — she uses them for scheduling
+- **Alice** (dev team) should only see the fetch tool — she uses it for research
 - **Bob** (ops team) should see everything — he needs full access for operations
 
 Create a tool access policy:
@@ -495,13 +494,13 @@ spec:
   mcp:
     toolAccess:
     - cel: 'jwt.sub == "bob"'
-    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-server-time")'
+    - cel: 'jwt.sub == "alice" && mcp.tool.name.startsWith("mcp-website-fetcher")'
 EOF
 ```
 
 This policy says:
 - If `sub=bob` → show **all** tools (no tool name filter)
-- If `sub=alice` → only show tools whose name starts with `mcp-server-time`
+- If `sub=alice` → only show tools whose name starts with `mcp-website-fetcher`
 
 ### Verify: Alice Only Sees Time Tools
 
@@ -515,8 +514,7 @@ npx @modelcontextprotocol/inspector@latest \
 ```
 
 Alice should only see:
-- `mcp-server-time-3001_get_current_time`
-- `mcp-server-time-3001_convert_time`
+- `mcp-website-fetcher_fetch`
 
 The `echo`, `add`, and other everything-server tools are **hidden** from Alice.
 
@@ -542,11 +540,11 @@ npx @modelcontextprotocol/inspector@latest \
   --header "mcp-protocol-version: 2024-11-05" \
   --header "Authorization: Bearer $ALICE_JWT" \
   --method tools/call \
-  --tool-name mcp-server-time-3001_get_current_time \
-  --tool-arg timezone=America/New_York
+  --tool-name mcp-website-fetcher_fetch \
+  --tool-arg url=https://agentgateway.dev
 ```
 
-Alice can call the time tools she's authorized to use. Trying to call `mcp-server-everything-3001_echo` would be denied.
+Alice can call the fetch tool she's authorized to use. Trying to call `mcp-server-everything-3001_echo` would be denied.
 
 ---
 
@@ -588,8 +586,8 @@ claude mcp add federated-tools \
 kubectl delete agentgatewaypolicy jwt-auth tool-access-control -n agentgateway-system
 kubectl delete httproute mcp-route -n agentgateway-system
 kubectl delete agentgatewaybackend mcp-federated -n agentgateway-system
-kubectl delete deploy mcp-server-everything mcp-server-time -n agentgateway-system
-kubectl delete svc mcp-server-everything mcp-server-time -n agentgateway-system
+kubectl delete deploy mcp-server-everything mcp-website-fetcher -n agentgateway-system
+kubectl delete svc mcp-server-everything mcp-website-fetcher -n agentgateway-system
 kind delete cluster --name agentgateway-mcp
 ```
 
