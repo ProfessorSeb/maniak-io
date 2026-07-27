@@ -1,8 +1,8 @@
 ---
 title: "agentgateway 1.4.0 OSS: everything that changed since 1.3.0"
 date: 2026-07-27
-description: "A practical walkthrough of open-source agentgateway from v1.3.0 to v1.4.0 — AgentgatewayModel, unified standalone Gateways, modern MCP, token exchange and Cross App Access, DaemonSet gateways, and the ops surface that actually matters when you upgrade."
-tags: ["agentgateway", "oss", "release", "mcp", "llm", "kubernetes", "oauth", "gateway-api", "a2a", "observability", "helm"]
+description: "A practical walkthrough of open-source agentgateway from v1.3.0 to v1.4.0 — AgentgatewayModel, unified standalone Gateways, UI Settings with policy tools on the UI gateway, modern MCP, token exchange and Cross App Access, DaemonSet gateways, and the ops surface that actually matters when you upgrade."
+tags: ["agentgateway", "oss", "release", "mcp", "llm", "kubernetes", "oauth", "gateway-api", "a2a", "observability", "helm", "ui"]
 categories: ["AI Gateway"]
 ---
 
@@ -29,13 +29,14 @@ Artifacts for 1.4.0:
 |------|----------------------|
 | Kubernetes LLM model API | New **`AgentgatewayModel`** CRD — model-centric config instead of hand-wired routes |
 | Standalone | **`gateways`** replaces **`binds`**; UI + LLM + MCP on one port by default; hybrid/DB storage |
+| UI | New **UI Settings** — bind the console to a traffic gateway and attach access policies (OIDC, JWT, API keys, CSRF, CORS, …) |
 | MCP | Spec **2026-07-28**, Apps, multi-target subscriptions, SEP-414 `_meta` tracing, more IdPs |
 | Auth | RFC 8693 **token exchange**, **Cross App Access / ID-JAG**, Entra-native MCP, admin IP allowlist |
 | Workloads / platform | **DaemonSet** gateways, Gateway API / TCPRoute bumps, s390x, PodMonitor/ServiceMonitor |
 | LLM path | Vertex native Gemini endpoints, Responses↔Bedrock images, cost Prometheus counter, tool-call telemetry |
 | Packaging | Standalone Helm chart is real in 1.4; musl images dropped |
 
-If you only remember three things: **AgentgatewayModel** on Kubernetes, **unified Gateways** on standalone, and a much more serious **auth + MCP** story.
+If you only remember four things: **AgentgatewayModel** on Kubernetes, **unified Gateways** on standalone, **UI Settings** so the console is a real protected route, and a much more serious **auth + MCP** story.
 
 ---
 
@@ -97,6 +98,32 @@ Related standalone work in the same window:
 - Standalone Helm chart **revamped for 1.4** (modes: read-only file vs database; `gateways` not `binds`; OIDC secret support). Note from upstream: the standalone chart never really “shipped finished” in 1.3, so treat the 1.4 chart as the first real baseline, not a soft bump.
 
 If you still have `binds:` YAML from 1.3 demos, plan a conversion pass before you call the upgrade done.
+
+---
+
+## 2b. UI Settings — protect the console like any other route
+
+1.4 adds a dedicated **UI Settings** screen under **Tools → Settings**. The job is explicit in the subtitle: expose the UI on a traffic gateway and configure policies that protect the UI.
+
+![agentgateway 1.4 UI Settings — Public UI gateway set to ui, with UI access policy cards for OIDC, JWT auth, Authorization, External authz, Basic auth, API keys, CSRF, and CORS (all shown disabled until configured)](/images/articles/2026-07-27-agentgateway-1-4-oss-from-1-3/ui-settings.png)
+
+What you get on that page:
+
+- **Public UI gateway** — pick which traffic gateway serves the console (in the screenshot, gateway name `ui`), then **View diff** / **Save UI gateway**
+- **UI access policies** as first-class cards, same policy toolkit you already use on LLM/MCP/traffic:
+  - OIDC (browser authorization code flow)
+  - JWT auth
+  - Authorization (HTTP request rules)
+  - External authz
+  - Basic auth (htpasswd)
+  - API keys
+  - CSRF (origin allowlist)
+  - CORS
+- Expandable **Current top-level policy YAML** so GitOps brains can see exactly what the UI is writing
+
+This is the UI half of the standalone `gateways` story. Once LLM, MCP, and the console share a gateway (or you deliberately put the UI on its own gateway), the console stops being a side admin port you hope nobody finds. It becomes a route with the same OIDC / JWT / API key / CSRF controls as everything else.
+
+Operational takeaway: after upgrade, open **Settings → UI Settings**, bind the UI to the gateway you actually expose, and turn on at least OIDC or JWT before you put that listener on a real network.
 
 ---
 
@@ -247,7 +274,7 @@ Controller build info metric and JWKS fetch concurrency improvements are quiet r
 
 Personal priority order if you already run 1.3 in anger:
 
-1. **Unified standalone gateway port** — fewer listeners, fewer ingress rules, UI protected with real auth.
+1. **Unified standalone gateway port + UI Settings** — fewer listeners, fewer ingress rules, console bound to a real gateway with OIDC/JWT/CSRF instead of an open admin surface.
 2. **Token exchange / XAA** — stop minting god-mode upstream tokens for agents.
 3. **AgentgatewayModel** — clean GitOps model catalog on Kubernetes.
 4. **MCP 2026-07-28 + SEP-414 traces** — federation that debuggable in Jaeger/Langfuse, not folklore.
@@ -265,4 +292,4 @@ Personal priority order if you already run 1.3 in anger:
 
 ---
 
-**Bottom line:** 1.3 made agentgateway a serious LLM/MCP gateway with UI and cost. **1.4 makes the config model and identity model match how people actually run agents** — models as API objects, one gateway port for humans and machines, and backend auth that can carry the user. Upgrade the charts, convert standalone `binds`, and put one real delegated-auth path in front of an upstream before you call it done.
+**Bottom line:** 1.3 made agentgateway a serious LLM/MCP gateway with UI and cost. **1.4 makes the config model and identity model match how people actually run agents** — models as API objects, one gateway port for humans and machines, a **UI Settings** path that treats the console as a protected route, and backend auth that can carry the user. Upgrade the charts, convert standalone `binds`, bind and lock down the UI gateway, and put one real delegated-auth path in front of an upstream before you call it done.
