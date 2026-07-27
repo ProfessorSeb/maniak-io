@@ -1,256 +1,322 @@
 ---
 title: "agentgateway 1.4.0 OSS: what changed since 1.3.0"
 date: 2026-07-27
-description: "A readable walkthrough of open-source agentgateway from 1.3.0 to 1.4.0 — new model API, unified gateways, UI Settings, modern MCP, token exchange, and what to do when you upgrade."
-tags: ["agentgateway", "oss", "release", "mcp", "llm", "kubernetes", "oauth", "gateway-api", "a2a", "observability", "helm", "ui"]
+description: "Readable upgrade map for open-source agentgateway 1.3.0 → 1.4.0 — MCP 2026-07-28, Cross App Access, token exchange, gateways + UI Settings, experimental AgentgatewayModel, breaking changes, and the High severity MCP session advisory."
+tags: ["agentgateway", "oss", "release", "mcp", "llm", "kubernetes", "oauth", "gateway-api", "a2a", "observability", "helm", "ui", "security"]
 categories: ["AI Gateway"]
 ---
 
 [agentgateway](https://github.com/agentgateway/agentgateway) **v1.4.0** landed on July 27, 2026.
 
-If you are still on 1.3.x, this post is the upgrade map. Not every PR — just what actually changed, why it matters, and what to touch first.
+If you are still on 1.3.x, this is the upgrade map. It tracks the [official v1.4.0 release notes](https://github.com/agentgateway/agentgateway/releases/tag/v1.4.0) — highlights, breaking changes, security, and the day-2 bits that actually matter — plus a bit of operator commentary.
 
-**Sources**
+**Also useful**
 
-- [v1.3.0](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.0) (June 18)
-- [v1.3.1](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.1) (June 22)
-- [v1.4.0](https://github.com/agentgateway/agentgateway/releases/tag/v1.4.0) (July 27)
-- Full diff: [v1.3.1...v1.4.0](https://github.com/agentgateway/agentgateway/compare/v1.3.1...v1.4.0)
+- [v1.3.0](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.0) · [v1.3.1](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.1)
+- Diff: [v1.3.1...v1.4.0](https://github.com/agentgateway/agentgateway/compare/v1.3.1...v1.4.0)
 
-**Install bits for 1.4.0**
+**Install bits**
 
-- Images: `cr.agentgateway.dev/agentgateway:v1.4.0` and `cr.agentgateway.dev/controller:v1.4.0`
-- Charts: `agentgateway`, `agentgateway-crds`, and `agentgateway-standalone`
-- Binaries: proxy + `agctl`
+- Images: `cr.agentgateway.dev/agentgateway:v1.4.0`, `cr.agentgateway.dev/controller:v1.4.0` (glibc — **no more musl image tags**)
+- Charts: `agentgateway`, `agentgateway-crds`, `agentgateway-standalone`
+- Binaries: still built with musl; proxy + `agctl`
 
 ---
 
 ## The short version
 
-Four things matter most:
+Upstream’s own highlight reel:
 
-1. **`AgentgatewayModel`** — models become real Kubernetes objects
-2. **Standalone `gateways`** — UI, LLM, and MCP can share one port
-3. **UI Settings** — protect the console like any other route
-4. **Auth + MCP** — token exchange, Cross App Access, modern MCP, more IdPs
+1. **Full MCP `2026-07-28` support** (and a year of community work behind it)
+2. **Cross App Access / Enterprise-Managed Authorization for MCP** (ID-JAG)
+3. **OAuth token exchange** backend auth (RFC 8693 + JWT bearer)
+4. **Standalone `gateways`** + DB-backed UI config (sqlite / postgres) + **standalone Helm chart**
+5. **Experimental `AgentgatewayModel`** on Kubernetes (off by default)
+6. Gateway API **v1.6**, fault injection, richer guardrails, lots of fixes
 
-Everything else is important, but those four change how you run the thing day to day.
+My add-on for operators: **read the breaking + security sections before you helm upgrade.** There is a High severity MCP auth advisory in this release.
 
 | Area | What moved |
 |------|------------|
-| Kubernetes LLM API | New `AgentgatewayModel` CRD |
-| Standalone | `gateways` replace `binds`; one-port default; DB/hybrid storage |
-| UI | Settings page to bind and lock down the console |
-| MCP | Spec 2026-07-28, Apps, better federation and traces |
-| Auth | Token exchange, Cross App Access, Entra for MCP |
-| Platform | DaemonSet gateways, Gateway API bumps, better monitors |
-| Packaging | Real standalone Helm chart; musl images dropped |
+| MCP | Protocol 2026-07-28, Apps, traces via `_meta`, Entra/Descope/authentik |
+| Auth | Token exchange, Cross App Access (incl. MCP EMA), hashed API keys |
+| Standalone | `gateways` supersede `binds`, UI on same port, sqlite/postgres storage |
+| UI | Settings to bind console + attach OIDC/JWT/API key/CSRF/CORS |
+| Kubernetes | Experimental `AgentgatewayModel` (off by default) |
+| Platform | DaemonSet, Gateway API 1.6 / TCPRoute v1, monitors, delay fault injection |
+| Security | [GHSA-mvgg-jvj2-4frq](https://github.com/agentgateway/agentgateway/security/advisories/GHSA-mvgg-jvj2-4frq) + CEL body guidance |
+
+---
+
+## Read this first: breaking changes
+
+Straight from upstream. Do these before you call the upgrade done.
+
+### 1. Gateway API v1.6 and TCPRoute v1
+
+agentgateway builds against **Gateway API v1.6**. The controller uses **`TCPRoute` v1**, not `v1alpha2`.
+
+**Action:** re-apply the Gateway API CRDs that match this release **before** you upgrade the controller/proxy.
+
+### 2. MCP request-phase guardrail rejections return HTTP 200
+
+If an MCP guardrail rejects in the **request** phase, the gateway now returns **HTTP 200** with a JSON-RPC error body — same as the response phase.
+
+**Action:** fix clients/tests that expected a non-200 on request-phase rejects.
+
+Docs: [k8s MCP guardrails](https://agentgateway.dev/docs/kubernetes/main/mcp/guardrails/) · [standalone](https://agentgateway.dev/docs/standalone/main/mcp/guardrails/)
+
+### 3. Standalone `auth.location` no longer nests `expression`
+
+Custom token location config dropped the double-nested `expression` field. Use the flattened form.
+
+**Action:** grep your standalone policies for nested `auth.location` expressions and update them.
+
+### 4. musl container images removed
+
+Musl **image** variants are gone. Use standard glibc images. **Binary** releases are still musl builds.
+
+**Action:** update image pins, digests, and SBOMs.
+
+---
+
+## Read this second: security
+
+### High: MCP sessions crossing routes (GHSA-mvgg-jvj2-4frq)
+
+This release fixes [GHSA-mvgg-jvj2-4frq](https://github.com/agentgateway/agentgateway/security/advisories/GHSA-mvgg-jvj2-4frq) — **High (8.1)** — where stateful MCP sessions could cross routes and overwrite authorization policy.
+
+Read the advisory for impact and mitigation. Credit: [Aonan Guan](https://github.com/0dd).
+
+Related hardening in the same train includes pinning MCP sessions to a backend and tightening passthrough checks. Still: if you run MCP with authz on 1.3, treat 1.4 as a **security upgrade**, not just a feature bump.
+
+### CEL `request.body` / `response.body` in auth policies
+
+Upstream flags a footgun (recommendation + behavior change), also from the same reporter.
+
+| Attribute | 1.3.x and earlier | 1.4 |
+|-----------|-------------------|-----|
+| `request.body` | Truncated to `http.maxBufferSize` (default 2MB) | **Not available if truncated** |
+| `request.truncatedBody` | Not available | Truncated to max buffer size |
+
+Why it matters: a policy like `string(request.truncatedBody).contains("attacker-payload")` can miss a match when the body is over 2MB, or when encoding/compression changes what you thought you were matching. Auth on raw bodies is easy to get wrong.
+
+**Action:** audit CEL auth that touches bodies. Prefer not using body contents for hard authorization when you can avoid it. If you must, handle the “body missing / truncated” case explicitly.
 
 ---
 
 ## What 1.3 already gave you
 
-v1.3.0 was a big release on its own. New UI (LLM / MCP / Traffic), cost tracking, virtual models, reusable providers and guardrails, more LLM providers, body buffering, better CEL/`agctl`, better traces.
+v1.3.0 brought the rebuilt UI (LLM / MCP / Traffic), cost tracking, virtual models, reusable providers/guardrails, more LLM providers, body buffering, better CEL/`agctl`, better traces.
 
-v1.3.1 was a small polish release four days later: controller `podLabels`, Vertex multi-region, same port with different protocols across gateways, UI fixes for wildcards and virtual models.
+v1.3.1 was polish: controller `podLabels`, Vertex multi-region, same port with different protocols across gateways, UI wildcard/virtual-model fixes.
 
-Nothing in 1.3.1 forces a redesign. **1.4 does** — especially if you run standalone, or you want models to look like first-class Kubernetes objects.
-
----
-
-## 1. Models as Kubernetes objects
-
-This is the Kubernetes headline.
-
-In 1.3, putting an LLM on the cluster usually meant wiring listeners, `HTTPRoute` body matches, AI policies, and backends by hand. Standalone already felt model-centric. Kubernetes did not.
-
-In 1.4, **`AgentgatewayModel`** closes that gap.
-
-Each object is one client-facing model (or a wildcard). It attaches to a Gateway listener with `parentRefs`. Mentally, it maps to standalone’s model / virtual-model idea. The listener has to opt into LLM behavior on purpose.
-
-Short names: `agmodel` / `agentgatewaymodels.agentgateway.dev`.
-
-Why that helps:
-
-- One GitOps object per model (or family)
-- Less copy-paste HTTPRoute matching for every model name
-- Kubernetes and standalone stop teaching two different stories
-
-Your old HTTPRoute-based LLM routes still work. You do not have to rewrite everything on day one. Start with one non-prod model on the new API and grow from there.
+1.3.1 does not force a redesign. **1.4 does** — config shape, CRDs, MCP auth behavior, and at least one security-fixing upgrade path.
 
 ---
 
-## 2. Standalone gets real “gateways”
+## 1. MCP protocol 2026-07-28
 
-Standalone config adds a **`gateways`** concept — with routes, TCP routes, and UI — as the replacement for **`binds`**.
+This is highlight #1 in the official notes.
 
-What that unlocks in plain terms:
+agentgateway adds support for the upcoming [MCP `2026-07-28` protocol](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/):
 
-- LLM, MCP, the UI, and normal HTTP routes can live on the **same listener**
-- One route can show up on HTTP and HTTPS without awkward duplication
-- The default path is now **UI + LLM + MCP on one port** (Helm leans on **4000**)
-- You can put different policies on different surfaces: OIDC for the UI, API keys for the LLM, same gateway
+- Stateful **and** stateless servers (SEP-2575 server-stateless gap closed; skip synthetic `initialize` for modern requests)
+- Trace context through MCP **`_meta`** (SEP-414 / `traceparent`) — stdio backends stay on the trace
+- Basic **MCP Apps** (plus multiplexing fixes for app-originated tool calls)
+- Multi-target subscriptions/listen, opaque URI multiplexing, preserved multi-resource tool-result capabilities
 
-Around that, standalone also got:
+Most of this is new enough that dedicated guides are still thin. Use the [Kubernetes API reference](https://agentgateway.dev/docs/kubernetes/main/reference/api/) and [Standalone config reference](https://agentgateway.dev/docs/standalone/main/reference/configuration/) for fields available today.
 
-- Hybrid mode: file config plus database-backed writes
-- Postgres storage and multi-replica notify
-- Simpler host + TLS setup
-- Admin interface **off** by default
-- Migration helpers in the CLI
-- A **revamped standalone Helm chart** for 1.4
+### New MCP identity providers
 
-That last point matters. Upstream basically treats the 1.4 standalone chart as the first real baseline. Do not assume a soft bump from early 1.3 chart experiments.
+- **Microsoft Entra ID** (k8s + standalone) — bridges Entra vs MCP-auth mismatches (OIDC discovery metadata, strip RFC 8707 `resource`, short-circuit DCR with your pre-registered app id)
+- **Descope** and **authentik** on standalone
+- Okta was already first-class in 1.3
 
-If your demos still say `binds:`, convert them before you call the upgrade finished.
+Docs: [k8s MCP auth](https://agentgateway.dev/docs/kubernetes/main/mcp/auth/) · [standalone MCP auth](https://agentgateway.dev/docs/standalone/main/mcp/mcp-authn/) · [Descope guide](https://agentgateway.dev/docs/standalone/main/integrations/auth/descope/)
 
 ---
 
-## 3. UI Settings: lock down the console
+## 2. Cross App Access (for MCP and backends)
 
-This is the part you can see.
+Official name in the MCP world: [Enterprise-Managed Authorization](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization). Implementation path: OAuth Identity Assertion Authorization Grant — **Cross App Access / ID-JAG**.
 
-1.4 adds **UI Settings** under **Tools → Settings**. The subtitle says it clearly: expose the UI on a traffic gateway, then attach policies that protect it.
+An enterprise IdP can broker access between a client app and an MCP server (or other backend) without a separate interactive OAuth dance for every downstream app.
+
+Docs: [k8s Cross App Access](https://agentgateway.dev/docs/kubernetes/main/security/backend-authn-cross-app-access/) · [standalone](https://agentgateway.dev/docs/standalone/main/configuration/security/backend-authn/cross-app-access/)
+
+Examples landed for Keycloak, xaa.dev, token exchange, and JWT bearer. Subject token source is configurable.
+
+---
+
+## 3. OAuth token exchange backend auth
+
+The gateway can exchange an incoming token for a backend credential using [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange and [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) JWT bearer.
+
+Also in this release:
+
+- Kubernetes controller support
+- Custom token types + OAuth 2.1-ish exchange defaults
+- Inject **multiple** secret-sourced headers
+- Override the resolved secret key for OAuth/GCP-style refs
+
+Docs: [k8s OAuth token exchange](https://agentgateway.dev/docs/kubernetes/main/security/backend-authn-oauth/) · [standalone](https://agentgateway.dev/docs/standalone/main/configuration/security/backend-authn/oauth-token-exchange/)
+
+If your 1.3 setup is “edge JWT ok, upstream still sees a shared service account,” this is the fix.
+
+### Related auth extras
+
+- Virtual keys from **ConfigMaps** (not only Secrets)
+- API keys stored as **SHA-256 hashes** (raw key need not live in plaintext config)
+- Admin IP allowlist + timing-attack fixes
+- `private_key_jwt` with certificate credentials
+- AWS assume-role: session tags + `RoleSessionName` / `sessionNameExpression` via CEL (e.g. propagate `jwt.sub`)
+- Per-backend SigV4 region
+- Frontend TLS with **multiple client CAs**
+- Bundled certs
+- Cloud auth fetch timeouts
+
+Virtual keys docs: [k8s](https://agentgateway.dev/docs/kubernetes/main/llm/cost-controls/virtual-keys/) · [standalone](https://agentgateway.dev/docs/standalone/main/llm/cost-controls/virtual-keys/)
+
+---
+
+## 4. Standalone: `gateways`, storage, Helm
+
+### `gateways` replace `binds`
+
+New top-level **`gateways`** unifies UI, LLM, MCP, and ordinary routes on one listener/port. That is what makes **OIDC on the UI** a first-class story.
+
+Important nuance from upstream:
+
+- `gateways` **supersedes** `binds`
+- Existing **`binds` still work**
+- The UI offers a **one-click migration** from binds → gateways
+
+Also: simpler host/TLS config, LLM+MCP on the same port, internal bind mode with wildcard fallback.
+
+Config reference: [standalone configuration](https://agentgateway.dev/docs/standalone/main/reference/configuration/)
+
+### Database-backed config (no PVC required)
+
+UI-created config can live in a database:
+
+- **sqlite** for local
+- **postgres** for remote / HA
+
+That avoids needing a persistent disk for writable UI workflows. Hybrid mode, policy writes, multi-replica notify, and “log errors to SQL too” landed in the same train. Storage naming moved away from the old configStore wording.
+
+Admin interface is **not** exposed by default.
+
+### Standalone Helm chart
+
+`cr.agentgateway.dev/charts/agentgateway-standalone:v1.4.0` is real: modes for file vs database, gateways-oriented defaults, OIDC secret support, metrics service + ServiceMonitor.
+
+Docs: [Standalone Helm](https://agentgateway.dev/docs/standalone/main/deployment/helm/)
+
+Treat 1.4 as the first serious baseline for that chart, not a soft bump from early experiments.
+
+---
+
+## 5. UI Settings: protect the console
+
+In the product UI: **Tools → Settings → UI Settings**.
+
+Bind the console to a traffic gateway, then attach the same policy toolkit you use elsewhere.
 
 ![agentgateway 1.4 UI Settings — Public UI gateway set to ui, with policy cards for OIDC, JWT, Authorization, External authz, Basic auth, API keys, CSRF, and CORS](/images/articles/2026-07-27-agentgateway-1-4-oss-from-1-3/ui-settings.png)
 
-On that page you can:
+You get:
 
-- Pick the **Public UI gateway** (screenshot uses a gateway named `ui`)
-- Save it, or view the diff first
-- Turn on access policies with the same toolkit you already use elsewhere:
-  - OIDC
-  - JWT
-  - Authorization rules
-  - External authz
-  - Basic auth
-  - API keys
-  - CSRF
-  - CORS
-- Expand the **current top-level policy YAML** if you want to see exactly what got written
+- **Public UI gateway** picker + view diff / save
+- Policy cards: OIDC, JWT, Authorization, External authz, Basic auth, API keys, CSRF, CORS
+- Expandable top-level policy YAML for the GitOps-minded
 
-This is the UI half of the gateway story. The console stops being “that admin port we hope nobody finds.” It becomes a normal route with real auth.
-
-After you upgrade: open Settings, bind the UI to the gateway you actually expose, and turn on OIDC or JWT before that listener hits a real network.
+After upgrade: bind the UI to the gateway you actually expose, turn on OIDC or JWT, then put that listener on a real network.
 
 ---
 
-## 4. MCP grows up
+## 6. Experimental `AgentgatewayModel` (off by default)
 
-MCP is not a side feature in 1.4. It got a real protocol bump and a lot of federation polish.
+Kubernetes headline — with the official caveats.
 
-**Protocol and federation**
+**`AgentgatewayModel`** brings the standalone model-centric LLM experience to Kubernetes: serve multiple models on one gateway, route by model name in the request. Higher level than assembling `AgentgatewayBackend` + HTTPRoute body matchers by hand.
 
-- Early support for **MCP 2026-07-28** (`server/discover`, `subscriptions/listen`, richer headers and `_meta`)
-- Basic **MCP Apps** support (capability ads, `ui://` rewrite, RBAC stripping denied UI resources)
-- Multi-target subscriptions
-- Lots of multiplex fixes (opaque URIs, app-originated tool calls, SSE events, fail-open fanout)
-- Sessions pinned to a backend
-- **SEP-414** trace context through `_meta.traceparent`, not only HTTP headers — so stdio backends stay on the same trace
+- Short names: `agmodel` / `agentgatewaymodels.agentgateway.dev`
+- **Experimental**
+- **Off by default**
+- Existing APIs remain available
 
-**More identity providers**
+Why try it: one GitOps object per model/family, less HTTPRoute glue, k8s and standalone stop telling different stories.
 
-Native MCP auth now includes:
-
-- **Microsoft Entra ID** (handles Entra’s awkward `resource` / v2 behavior)
-- **Descope**
-- **Authentik**
-
-Okta was already first-class in 1.3. The theme is the same: stop needing a custom adapter proxy just to log into MCP.
-
-**Small but painful policy fixes**
-
-- Request-phase guardrail rejections can return **200** like the response phase (some clients hate non-JSON-RPC error statuses)
-- Target-level MCP policies are less likely to get dropped
-- Passthrough checks are tighter
-
-If you put several MCP servers behind one agentgateway front door, 1.4 is the first release where modern clients, multi-server federation, Apps, and traces feel designed together.
+Why not force it day one: experimental. Pilot one non-prod model after the cluster is stable on 1.4.
 
 ---
 
-## 5. Auth for how agents really call APIs
+## 7. Guardrails, ext_proc, CEL, fault injection
 
-Checking “is this JWT valid?” is not enough. Agents need **downstream tokens that still represent the user**.
+### Guardrails
 
-### Token exchange (RFC 8693)
+- **`BackendConnectionPolicy`** for guardrail callouts (TCP/TLS/HTTP/tunnel) on OpenAI moderation, Bedrock guardrails, Google Model Armor
+- Default callout timeouts
+- Clearer guardrail decisions in logs/UI
+- ext_proc **`failureMode`** (fail-open / fail-closed)
 
-With `backendAuth.tokenExchange`, the gateway takes the inbound user token, exchanges it at your token endpoint, and sends the result upstream.
+### External processing
 
-One front door. Many upstreams. Each gets its own per-user credential. You do not have to invent ext_proc glue for every API.
+Controller support for `metadataContext`, `requestAttributes`, `responseAttributes`, plus `failureMode`.
 
-### Cross App Access / ID-JAG (XAA)
+### CEL
 
-`backendAuth.crossAppAccess` is the delegated path: exchange the user’s ID token for an ID-JAG, then use that to get a **user-scoped** access token for the backend.
+- **Custom CEL functions** you can register for policies
+- Opt-in **CEL filters for OTel spans**
+- CEL filters that decouple OTLP log fields from stdout
+- `source.connectHeaders` for inbound CONNECT headers
+- Header transformation **replace** mode via CEL
+- Body handling split: `body` vs `truncatedBody` (see security section)
 
-That is the “agent calls Microsoft Graph or an internal API **as the user**, without a second login” story.
+CEL refs: [k8s](https://agentgateway.dev/docs/kubernetes/main/reference/cel/) · [standalone](https://agentgateway.dev/docs/standalone/main/reference/cel/)
 
-Examples landed for Keycloak, xaa.dev, token exchange, and JWT bearer.
+### Fault injection: `delay`
 
-### Other security bits worth knowing
+New **delay** traffic policy injects latency before forward. Duration string, CEL duration, or number-as-milliseconds. Injected delay counts against the request timeout.
 
-- SHA-256 encoded API keys
-- Admin IP allowlist
-- Timing-attack fixes in auth
-- `private_key_jwt` with certificates
-- Multiple secret-sourced backend headers
-- AWS session tags, dynamic `RoleSessionName`, per-backend SigV4 region
-- Frontend TLS with multiple client CAs
-- Bundled certs
-- Sensible cloud-auth timeouts
-
-If your 1.3 setup is “gateway checks JWT, upstream still sees a shared service account,” 1.4 is when you can fix that for real.
+Docs: [k8s fault injection](https://agentgateway.dev/docs/kubernetes/main/resiliency/fault-injection/) · [standalone](https://agentgateway.dev/docs/standalone/main/configuration/resiliency/fault-injection/)
 
 ---
 
-## 6. LLM path fixes you will actually feel
+## 8. LLM, A2A, and provider path fixes
 
-Not every LLM change needs a banner. These ones show up in production:
+From the official “LLM gateway enhancements” plus the long PR train:
 
-- **Vertex / Gemini** — native `generateContent` paths, multi-region (from 1.3.1), better embeddings behavior
-- **Azure / Foundry** — Anthropic on Foundry, Responses path fixes, Azure auth types on the Kubernetes side
-- **Bedrock** — image translation on the Responses path, tool-name length sanitizing, cache-write tokens in logs
-- Reasoning fixes when translating messages → completions
-- Decompress / decode request bodies before JSON parse
-- Webhook guardrail headers and path via CEL
-- Optional logging of user **and** prompt together
-- Cost: Prometheus counter, better catalog loading, virtual keys from ConfigMaps
-- Telemetry: tool calls, richer debug traces, A2A response metrics
-- Safer handling when bodies exceed buffer limits
+- **Frontend TLS** multi-CA client cert validation
+- **Bedrock:** Responses→Bedrock images, 64-char tool name sanitizing, cache-write tokens in access logs
+- **Gemini / Vertex:** embeddings fix, native generateContent paths, detect-mode model/usage extraction
+- **Azure AI Foundry:** Anthropic endpoints; Responses/date-based API path fixes
+- **A2A v1.0** agent card format in URL rewriting
+- Reasoning fixes on messages→completions; body decode before JSON parse
+- Cost: Prometheus counter; catalog ConfigMap loading; virtual keys from ConfigMaps
+- Telemetry: tool calls, A2A response metrics, richer dtrace
+- Semantic routing examples (including Responses)
 
-There was also a fair amount of internal cleanup (provider capabilities, LLM crate split). That is why weird translation edge cases keep getting fixed in this train.
-
----
-
-## 7. Traffic and platform
-
-A few platform pieces matter if you run this beyond a laptop:
-
-- **DaemonSet** gateways in addition to Deployments
-- Internal bind mode for east-west / mesh-style frontends
-- Frontend policies aimed at a specific Gateway port
-- TCPRoute v1 and a move toward Gateway API 1.6
-- ext_proc `failureMode` and richer attributes
-- Stream large bodies instead of hard-failing every oversized payload
-- CEL replace mode for headers
-- Delay policy for fault injection
-- Better ext_authz HTTP caching
-- Helm extras: `extraContainers`, PodMonitor, standalone ServiceMonitor
-
-Use DaemonSet only if you have a node-local reason. Deployment is still the default.
+Providers: [k8s](https://agentgateway.dev/docs/kubernetes/main/llm/providers/) · [standalone](https://agentgateway.dev/docs/standalone/main/llm/providers/)
 
 ---
 
-## 8. Upgrade gotchas
+## 9. Deployment and ops
 
-Read these before you roll:
-
-1. **Standalone config and chart changed.** `binds` → `gateways`, new storage modes, different defaults, admin off by default. Read the 1.4 values file. Do not blind-upgrade.
-2. **Musl images are gone.** Update pins and SBOMs if you depended on them.
-3. **Embedded UI builds by default** (`UI=0` to skip).
-4. **`agctl` is much smaller**, and some commands moved under a proxy subcommand. Check scripts.
-5. Nightly `agctl` builds exist if you live on main.
-6. **s390x** support is there for the platforms that need it.
-7. There is a test-only rmcp security note — do not drag test deps into prod images.
+- **DaemonSet** data plane (still defaults to Deployment)
+- Helm **`extraContainers`** on control plane pods
+- Proxy scrape via **PodMonitor**; standalone metrics Service + **ServiceMonitor**
+- `agentgateway_controller_build_info` metric
+- Standalone SQL logging for success **and** error, with faster writes
+- Internal bind mode (annotation + wildcard fallback)
+- Frontend policies targetable to a Gateway port
+- Buffer: stream when body exceeds limit instead of always hard-failing
+- ext_authz HTTP cache + custom HTTP bodies
+- `agctl` much smaller; some trace/config commands under proxy subcommand; nightly artifacts
+- **s390x** support
+- Embedded UI build by default (`UI=0` to opt out)
 
 ---
 
@@ -258,53 +324,55 @@ Read these before you roll:
 
 ### Kubernetes
 
-1. Bump **CRDs first** (`agentgateway-crds` → v1.4.0). Confirm `AgentgatewayModel` exists.
-2. Bump controller and proxy together.
-3. Smoke test existing HTTPRoutes, MCP, JWT/ext_authz, and traces.
-4. Move **one** non-prod model onto `AgentgatewayModel`.
-5. If you use client mTLS / FrontendTLS, retest multi-CA.
-6. Keep Deployment unless you truly need DaemonSet.
+1. Re-apply **Gateway API CRDs** for the v1.6 / TCPRoute v1 set this release expects
+2. Bump **`agentgateway-crds`** → v1.4.0
+3. Bump controller + proxy **together**
+4. If you run authenticated MCP: read [GHSA-mvgg-jvj2-4frq](https://github.com/agentgateway/agentgateway/security/advisories/GHSA-mvgg-jvj2-4frq) and validate session/route authz behavior
+5. Smoke HTTPRoutes, MCP, JWT/ext_authz, traces, guardrails
+6. Audit CEL auth that uses `request.body` / `response.body`
+7. Only then pilot **one** non-prod `AgentgatewayModel`
+8. Keep Deployment unless you truly need DaemonSet
 
 ### Standalone
 
-1. Snapshot config. Use migration helpers if you have local state.
-2. Convert `binds` → `gateways`.
-3. Put UI / LLM / MCP on the unified port on purpose.
-4. Open **UI Settings**, bind the console, turn on OIDC or JWT.
-5. If you expected local PVC writes from early charts, move writable mode to **Postgres**.
-6. Install from `cr.agentgateway.dev/charts/agentgateway-standalone:v1.4.0`.
+1. Snapshot config
+2. Note: `binds` still work; migrate with UI one-click or convert to `gateways` deliberately
+3. Flatten any nested `auth.location` expressions
+4. Pick storage: **sqlite** local vs **postgres** HA (drop PVC assumptions from early charts)
+5. Open **UI Settings**, bind console, enable OIDC/JWT
+6. Install/upgrade `agentgateway-standalone` v1.4.0 after reading values
 
-### If auth is the pain
+### Auth-heavy estates
 
-1. List upstreams still using shared service accounts.
-2. Try token exchange on one API.
-3. Try Cross App Access on one user-delegated SaaS API.
-4. For MCP + Entra, use the native provider instead of a home-grown proxy.
+1. Inventory upstreams still on shared service accounts
+2. Prototype token exchange on one API
+3. Prototype Cross App Access for one MCP or SaaS API
+4. Prefer native Entra MCP provider over home-grown resource-parameter proxies
+5. Prefer hashed virtual keys / ConfigMap sources where you can
 
 ---
 
 ## What I would turn on first
 
-If you already run 1.3 in anger, this is my order:
-
-1. **One gateway port + UI Settings** — fewer listeners, console actually protected
-2. **Token exchange or XAA** — stop handing agents god-mode upstream tokens
-3. **`AgentgatewayModel`** — cleaner GitOps model catalog
-4. **Modern MCP + SEP-414 traces** — federation you can debug
-5. **DaemonSet** — only if node-local ingress is a real requirement
+1. **Security fix path** — upgrade MCP authz estates for the High advisory
+2. **Gateway API CRD re-apply + clean 1.4 roll**
+3. **One gateway + UI Settings** — console actually protected
+4. **Token exchange or XAA** — user-scoped upstream tokens
+5. **MCP 2026-07-28 + `_meta` traces** — federation you can debug
+6. **Experimental AgentgatewayModel** — one non-prod pilot, not a big-bang rewrite
 
 ---
 
 ## Links
 
-- [agentgateway v1.4.0](https://github.com/agentgateway/agentgateway/releases/tag/v1.4.0)
+- [Official v1.4.0 release](https://github.com/agentgateway/agentgateway/releases/tag/v1.4.0)
+- [Security advisory GHSA-mvgg-jvj2-4frq](https://github.com/agentgateway/agentgateway/security/advisories/GHSA-mvgg-jvj2-4frq)
 - [v1.3.1...v1.4.0](https://github.com/agentgateway/agentgateway/compare/v1.3.1...v1.4.0)
-- [v1.3.0](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.0) · [v1.3.1](https://github.com/agentgateway/agentgateway/releases/tag/v1.3.1)
 - Docs: [Kubernetes quick start](https://agentgateway.dev/docs/kubernetes/latest/quickstart/) · [Standalone quick start](https://agentgateway.dev/docs/standalone/latest/quickstart/)
 - On this site: [Eight principles of an AI gateway](/articles/2026-07-12-eight-principles-of-an-ai-gateway-agentgateway/) · [Why the v1 line matters](/articles/2026-03-12-agentgateway-v1-why-it-matters/)
 
 ---
 
-**Bottom line:** 1.3 made agentgateway a serious LLM/MCP gateway with UI and cost. **1.4 makes day-2 operations less weird.** Models become API objects. UI, LLM, and MCP can share a gateway. The console gets real policy. Auth can finally carry the user downstream.
+**Bottom line:** 1.4 is not only features. It is **MCP protocol catch-up**, **real delegated auth** (token exchange + Cross App Access for MCP), **standalone that can run UI/LLM/MCP on one port with DB-backed config**, an **experimental model API** on Kubernetes, and a set of **breaking + security fixes you should not skip**.
 
-Bump the charts. Convert standalone `binds`. Bind and lock down the UI. Put one real delegated-auth path in front of an upstream. Then call the upgrade done.
+Re-apply Gateway API CRDs. Bump charts. Read the MCP session advisory. Bind and lock down the UI. Then play with AgentgatewayModel — in that order.
