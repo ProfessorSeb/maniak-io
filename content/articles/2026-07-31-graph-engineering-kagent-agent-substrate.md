@@ -1,7 +1,7 @@
 ---
 title: "Graph Engineering on Kubernetes: kagent + Agent Substrate"
 date: 2026-07-31T10:00:00-04:00
-description: "Graph engineering makes agent workflow topology explicit — nodes, edges, branches, joins, state. Here's how that discipline maps onto kagent CRDs and Agent Substrate, grounded in the harness / loop / graph model."
+description: "Multi-agent demos fall apart when topology is hidden in prompts and every idle agent holds a pod. Here's a human take on graph engineering — and how to run it on kagent + Agent Substrate."
 draft: false
 categories:
   - AI
@@ -23,31 +23,28 @@ tags:
 
 **By Sebastian Maniak**
 
-Here's a familiar pattern. You stand up a few agents, each in its own pod. You give one a supervisor prompt that vaguely says "delegate when needed." Tools get wired in application code. The demo works. Then real traffic shows up — half the sessions are idle, nobody can draw who calls whom after an incident, and you're paying for a fleet of pods that spend most of their lives doing nothing.
+Here's a familiar pattern. You stand up a few agents, each in its own pod. You give one a supervisor prompt that vaguely says "delegate when needed." Tools get wired in application code. The demo works.
+
+Then real traffic shows up. Half the sessions sit idle. Nobody can draw who called whom after an incident. And you're paying for a fleet of pods that spend most of their lives doing nothing.
 
 That is not a model problem. It is an architecture problem — specifically a **topology** problem.
 
-In July 2026, [beamnxw published a practical guide](https://x.com/beamnxw/status/2081022966645535079) that cuts through a lot of fuzzy language around agent systems. The short version is worth memorizing:
+[A practical guide from beamnxw](https://x.com/beamnxw/status/2081022966645535079) cuts through a lot of the fuzzy language. The short version is worth memorizing:
 
 > **Harness engineering** builds the machinery around the model.  
 > **Loop engineering** designs the repeated work-and-feedback cycle.  
 > **Graph engineering** makes the workflow topology explicit: nodes, branches, joins, state transitions, and controlled cycles.
 
-Or even shorter: **environment → feedback → flow**.
+Even shorter: **environment → feedback → flow**.
 
-Those three layers sit around the same model. They all influence reliability. They can all contain "loops." They are still not synonyms. Confusing them is how teams overbuild graphs, under-spec stop rules, and treat the runtime as a dumping ground for every tool they can find.
+Those three layers all sit around the same model. They all affect reliability. They can all involve "loops." They are still not the same thing. Confusing them is how teams draw twelve-node diagrams on day one, never define what "done" means, and dump every tool they can find into one agent.
 
-This post takes that framing seriously — especially the **graph** layer — and maps it onto something you can run on Kubernetes with open source:
+This post takes that framing seriously — especially the **graph** layer — and maps it onto open source you can actually run:
 
-- **[kagent](https://kagent.dev)** as the control plane (topology as CRDs)
-- **[Agent Substrate](https://github.com/agent-substrate/substrate)** as the execution layer (dense, sandboxed actors with suspend/resume)
+- **[kagent](https://kagent.dev)** as the control plane (agents, tools, and edges as Kubernetes CRDs)
+- **[Agent Substrate](https://github.com/agent-substrate/substrate)** as the execution layer (sandboxed actors that suspend when idle and wake fast)
 
-If you want install steps and kind labs, those already exist on this site. This piece is about *thinking correctly* about graph engineering, then implementing it without paying a pod per idle node:
-
-- [Suspend & Resume Stateful Agents on kind](/articles/2026-06-25-kagent-agent-substrate-suspend-resume-kind/)
-- [Deploy kagent with Agent Substrate](/articles/2026-07-13-kagent-oss-agent-substrate-kind-guide/)
-- [GitOps for Agents](/articles/2026-04-02-gitops-for-agents-deployment-and-management/)
-- [Human-in-the-Loop on kagent](/articles/2026-03-11-human-in-the-loop-kagent/)
+The goal is not more jargon. It is a multi-agent system you can review in Git, operate on a cluster, and not overpay for while it waits.
 
 ---
 
@@ -457,53 +454,70 @@ If you only remember one sequencing rule from the article: **do not draw this wh
 
 ---
 
-## A production-minded checklist (graph-first)
+## Questions worth asking before you scale this
 
-Adapted from the three-layer production checklist in the beamnxw guide, focused on what you implement with kagent + substrate:
+Before you grow the graph, sit with a few questions. They are adapted from the production checklist in the beamnxw guide — translated into this stack.
 
-**Graph**  
-Which paths must be deterministic? Where can work run in parallel? What state is shared, and who merges it? Where are the human gates and recovery routes? Is the legal topology visible in YAML?
+**On the graph:** Which paths must be deterministic? Where can work run in parallel? What state is shared, and who merges it? Where are the human gates and recovery routes? Could a teammate see the legal topology from the YAML alone?
 
-**Loop**  
-What evidence proves success for each node? What feedback returns on failure? How many retries? What happens when budget is gone?
+**On the loops:** What evidence proves success for each node? What feedback comes back on failure? How many retries? What happens when the budget is gone?
 
-**Harness**  
-Are tools narrow, documented, and observable? Is state durable across suspend/resume? Are permissions least-privilege? Can operators pause, inspect, and resume a run?
+**On the harness:** Are tools few, clear, and observable? Does state survive suspend/resume? Are permissions tight? Can someone pause, inspect, and resume a run without redeploying the world?
 
-**Evaluation and ops**  
-Can you replay traces and attribute improvement to a specific CRD change? Are cost, latency, failure rate, intervention rate, and task success watched in production?
+**On ops:** Can you replay a bad run and point at a CRD change that fixed it? Are you watching cost, latency, failure rate, and how often a human has to step in?
 
-If you cannot answer the graph questions, more models will not help. If you cannot answer the harness questions, more nodes will not help either.
+If you cannot answer the graph questions, a bigger model will not save you. If you cannot answer the harness questions, more nodes will not either.
 
 ---
 
-## When you should not build a graph
+## When you should *not* build a graph
 
-If the job is "one agent, three tools, let it work," you do not need twelve nodes. Prefer a solid harness and a tight loop.
+If the job is "one agent, three tools, let it work," you do not need twelve nodes. Build a solid harness and a tight loop first.
 
-Promote to a multi-node graph when you keep reimplementing the same branches, specialist handoffs, recovery paths, or human gates in glue code — and when those paths have stabilized enough that freezing them is a feature, not a liability.
+Add a multi-node graph when you keep reimplementing the same branches, specialist handoffs, recovery paths, or human gates in glue code — and when those paths are stable enough that freezing them is a feature, not a trap.
 
-Graph engineering earns its ceremony when **control and state transitions** must be inspectable. It is not a fashion statement.
+Graph engineering is for control you can inspect. It is not a fashion statement.
 
 ---
 
 ## Bottom line
 
-beamnxw's framing is the right one to steal:
+Steal the three-layer framing and use it on purpose:
 
-- **Harness** — environment that makes the model operable  
-- **Loop** — iterative, verifiable, resumable process with evidence and stop rules  
-- **Graph** — explicit, controllable execution topology  
+- **Harness** — the environment that makes the model operable  
+- **Loop** — the iterative process with evidence and stop rules  
+- **Graph** — the explicit map of what may run next  
 
-None of the three substitutes for the others. A beautiful graph with a broken harness still loses state. The best harness with no stop rules still burns money. Careful loops still collapse when branching and approvals live only in ad-hoc code.
+None of them replaces the others. A pretty graph with a broken harness still loses state. A great harness with no stop rules still burns money. Careful loops still turn to spaghetti when branching and approvals live only in ad-hoc code.
 
-On Kubernetes, that maps cleanly:
+On Kubernetes, the split is clean enough to ship:
 
-- **kagent** makes the graph (and much of the policy) declarative  
-- **Agent Substrate** supplies a production-grade harness for density and isolation  
-- **Loops and node boundaries** remain *your* design work inside each specialist  
-- **CronJobs** fill the "when does this path start?" gap without a new product  
+- **kagent** makes the graph (and a lot of the policy) declarative  
+- **Agent Substrate** makes idle nodes cheap and isolated  
+- **You** still design node boundaries, evidence, and exits  
+- **CronJobs** handle "run this path at 8am" without inventing a new product  
 
-Start with one node you trust. Add edges when traces demand them. Put humans on high-impact tools. Scale the WorkerPool for concurrent work, not for diagram vanity. Keep the topology in Git.
+Keep the topology in Git. Scale the WorkerPool for concurrent work, not for diagram vanity. Put humans on tools that can hurt.
 
-Further reading: [kagent](https://kagent.dev) · [Agent Substrate](https://learn.agentsubstrate.dev/) · [the three-layer guide that shaped this post](https://x.com/beamnxw/status/2081022966645535079) · [kind substrate lab](/articles/2026-06-25-kagent-agent-substrate-suspend-resume-kind/) · [GitOps for agents](/articles/2026-04-02-gitops-for-agents-deployment-and-management/) · [HITL](/articles/2026-03-11-human-in-the-loop-kagent/)
+---
+
+## Where to start (call to action)
+
+You do not need the full briefing pipeline on day one. Do this instead:
+
+1. **Stand up the harness.** Install Agent Substrate, then kagent with substrate enabled, then a small WorkerPool. Follow the hands-on path:  
+   [Suspend & resume on kind](/articles/2026-06-25-kagent-agent-substrate-suspend-resume-kind/) · [OSS substrate code share](/articles/2026-07-13-kagent-oss-agent-substrate-kind-guide/)
+
+2. **Ship one node you trust.** One `SandboxAgent`, one model, a short tool list. Chat with it. Watch it suspend and resume. Get comfortable before you draw edges.
+
+3. **Add edges only when traces demand them.** Promote repeated handoffs into agent-as-tool refs. Keep illegal specialists off the tool list so they cannot run by accident.
+
+4. **Put a human on the dangerous tools.** Start with [HITL on kagent](/articles/2026-03-11-human-in-the-loop-kagent/). Approve deletes and deploys. Leave reads free.
+
+5. **Put the YAML in Git.** Treat prompt, model, and tool changes like production config. [GitOps for agents](/articles/2026-04-02-gitops-for-agents-deployment-and-management/) is the longer version of that argument.
+
+6. **Schedule later.** When you need calendar wakeups, add a CronJob that triggers the orchestrator. Do not wait for a native "agent cron" product.
+
+Runnable demos live in [`sebbycorp/kagent-demos`](https://github.com/sebbycorp/kagent-demos/tree/main/01-kagent-agent-substrate). Upstream docs: [kagent.dev](https://kagent.dev) · [learn.agentsubstrate.dev](https://learn.agentsubstrate.dev/) · [github.com/kagent-dev/kagent](https://github.com/kagent-dev/kagent). The conceptual spine for this post is still [beamnxw's three-layer guide](https://x.com/beamnxw/status/2081022966645535079).
+
+**Your move:** clone the demo, run one substrate-backed agent on kind this week, and only then decide which edges belong in the graph. Topology you have not earned from traces is just decoration.
