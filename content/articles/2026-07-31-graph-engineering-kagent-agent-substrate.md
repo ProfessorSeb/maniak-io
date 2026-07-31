@@ -23,6 +23,8 @@ tags:
 
 **By Sebastian Maniak**
 
+![Graph engineering on Kubernetes: kagent coordinates agents, tools, and state as a runtime graph on Agent Substrate inside a Kubernetes cluster](/images/articles/2026-07-31-graph-engineering-kagent-agent-substrate/graph-engineering-hero.jpg)
+
 Here's a familiar pattern. You stand up a few agents, each in its own pod. You give one a supervisor prompt that vaguely says "delegate when needed." Tools get wired in application code. The demo works.
 
 Then real traffic shows up. Half the sessions sit idle. Nobody can draw who called whom after an incident. And you're paying for a fleet of pods that spend most of their lives doing nothing.
