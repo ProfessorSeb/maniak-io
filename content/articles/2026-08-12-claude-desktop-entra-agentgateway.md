@@ -1,7 +1,7 @@
 ---
-title: "How To: Point Claude Desktop at AgentGateway with Entra SSO"
+title: "How To: Point Claude Desktop at agentgateway with Entra SSO"
 date: 2026-08-12
-description: "Run Claude Desktop through a dedicated AgentGateway path — Entra PKCE (ID token), JWT Strict at the edge, Anthropic key stays in the cluster. Lab walkthrough with the loopback proxy from k8s-goose."
+description: "Run Claude Desktop through a dedicated agentgateway path — Entra PKCE (ID token), JWT Strict at the edge, Anthropic key stays in the cluster. Lab walkthrough with the loopback proxy from k8s-goose."
 tags: ["agentgateway", "claude", "claude-desktop", "entra", "jwt", "anthropic", "gitops", "sso", "pkce"]
 categories: ["AI Gateway"]
 author: "Sebastian Maniak"
@@ -9,7 +9,7 @@ author: "Sebastian Maniak"
 
 Claude Desktop is great until the Anthropic key lives on every laptop and nobody can answer who called which model, when, or for how much.
 
-The pattern I want is the same one I use for [Claude Code / Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/) and [MCP through AgentGateway](/articles/2026-02-18-route-mcp-traffic-claude-through-agentgateway/): **SSO at the edge, provider secret in the cluster, one place for policy and cost.**
+The pattern I want is the same one I use for [Claude Code / Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/) and [MCP through agentgateway](/articles/2026-02-18-route-mcp-traffic-claude-through-agentgateway/): **SSO at the edge, provider secret in the cluster, one place for policy and cost.**
 
 This guide is the Claude Desktop path running in my lab:
 
@@ -153,9 +153,9 @@ Everything is under `config/` via the Argo app `agentgateway-config`. Push + syn
 |-----------------|----------------|
 | Anthropic key on the laptop | Key stays in Vault / cluster |
 | Claude.ai account or raw API key sprawl | Org Entra sign-in |
-| No shared policy / spend story | Same AgentGateway budgets, traces, and cost catalog as the rest of the lab |
+| No shared policy / spend story | Same agentgateway budgets, traces, and cost catalog as the rest of the lab |
 
-If you already route Claude Code or MCP through AgentGateway, this is the Desktop sibling: same identity story, dedicated Gateway so `/v1/messages` just works.
+If you already route Claude Code or MCP through agentgateway, this is the Desktop sibling: same identity story, dedicated Gateway so `/v1/messages` just works.
 
 ---
 
