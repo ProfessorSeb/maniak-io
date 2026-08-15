@@ -39,7 +39,7 @@ Put the gateway between Harness and the provider, and that one hop becomes the p
 - **Log** — every call, its status, and the model it resolved to, on one page. Without a proxy, this traffic is invisible.
 - **Cost** — tokens turned into dollars with a cost catalog, attributed per model and per user.
 
-Honest scope: this walkthrough wires up **secure, route, log, and cost**. The governance knobs — virtual keys, regex guards, rate limits — are the same gateway and a config block away, and I set those up in the [OpenMausBot post](/articles/2026-08-15-openmausbot-standalone-agentgateway/) if you want them now.
+I'll build it in that order, and the order matters: the first four are what make the thing work, and governance is what makes it safe to leave running. Secure, route, log, and cost come first, because you want to see traffic before you start refusing it. Then we turn govern on at the end and watch the front door get pickier.
 
 By the end of it I asked Harness two deliberately boring questions, and the gateway handed me a receipt: **39 tokens, 2 calls, $0.0000072.** A meaningless amount of money, and exactly the point — that number simply does not exist when an agent talks to a provider directly.
 
@@ -248,6 +248,80 @@ Scale that thought up. It's a rounding error for two arithmetic questions, but i
 
 ---
 
+## Now make the door pickier
+
+Everything so far gets the key out of the app and puts a number on the traffic. That's four of the five. What's still missing is the one that matters the moment this stops being a toy: **nothing yet decides who may call, how much they may spend, or what may be sent.**
+
+Right now my gateway accepts `local-harness-not-openai` because it accepts anything. That's fine for proving a path works. It's not fine for a framework running with shell access on a laptop that also has my SSH keys on it.
+
+So the config grows three policies. This is [`agentgateway-governed.yaml`](https://github.com/sebbycorp/deepseek-agw/blob/main/agentgateway-governed.yaml) in the repo:
+
+```yaml
+llm:
+  policies:
+    # GOVERN — who is allowed through this door, and under what name
+    apiKey:
+      mode: strict
+      keys:
+        - key: "$DSH_VIRTUAL_KEY"
+          metadata:
+            user: dsh
+            tier: local
+
+    # GOVERN — a ceiling the harness cannot talk its way past
+    localRateLimit:
+      - maxTokens: 200000
+        tokensPerFill: 200000
+        fillInterval: 3600s
+        type: tokens
+
+  models:
+    - name: "*"
+      provider: openAI
+      params:
+        apiKey: "$OPENAI_API_KEY"
+        tokenize: true          # count the prompt before OpenAI sees it
+
+      # SECURE — an agent that can read files shouldn't be able to paste
+      # a secret into a prompt
+      guardrails:
+        request:
+          - regex:
+              action: reject
+              rules:
+                - pattern: "api[_-]?key[=:]\\s*\\S+"
+                - pattern: "sk-[A-Za-z0-9_-]{10,}"
+                - builtin: email
+```
+
+Three things change, and each one is worth understanding rather than pasting.
+
+**`mode: strict` turns my invented token into a real one.** Not real as in OpenAI — it still does nothing at `api.openai.com`. Real as in *the gateway now recognizes it*, and stamps `user: dsh` onto every call it authorizes. That's the difference between a cost page that says "someone spent this" and one that says who. Once you care who paid, `optional` is just a hole.
+
+**The rate limit is the thing that lets me sleep.** An agent loop that goes wrong doesn't fail politely, it retries — and `tokenize: true` means the gateway counts the prompt *before* OpenAI does, so a runaway turn gets refused without spending anything. Worth knowing on standalone: that ceiling is gateway-wide, not per key. Per-key daily budgets need a remote rate-limit server, which is a [different post](/articles/2026-07-02-agentgateway-ai-budgets-hard-spend-limits/).
+
+**The guardrails exist because of what Harness is.** This is a framework with filesystem and shell access, driving a model that decides for itself what to include in a prompt. I don't think it will paste my `.env` into a completion. I'd just rather it can't.
+
+Switching over is two edits. The virtual key goes in the same mode-600 file as the real one — pick any value, it's yours:
+
+```bash
+printf 'export DSH_VIRTUAL_KEY=sk-dsh-local-harness\n' >> .secrets/openai.env
+AGW_CONFIG=./agentgateway-governed.yaml ./start-agw.sh
+```
+
+And Harness sends that instead of the placeholder — one field in **Settings → Models**, or the environment before you start it:
+
+```bash
+export GATEWAY_API_KEY=sk-dsh-local-harness
+npx @deepseek-ai/dsh web
+```
+
+That's it. No plugin, no patch, nothing in `~/.dsh` that knows any of this happened. **The harness doesn't learn about governance — it just keeps talking to `/v1` and the door got pickier.** That's the whole argument for putting the control point outside the app.
+
+One warning from experience: if you flip to `strict` and forget to update the token, every single call returns 401 and it looks exactly like the gateway is broken. And the `email` builtin in that guard is more eager than you'd expect — the first time a legitimate prompt gets a 400 `content_policy_violation`, that's the rule that caught it, not a bug.
+
+---
+
 ## The same trick on a cluster
 
 Nothing about the pattern changes when this moves off the laptop. Only the hiding place for the secret does — the mode-600 file becomes a Kubernetes Secret, and the local YAML becomes a handful of CRDs. The repo has them as applyable files under [`k8s/`](https://github.com/sebbycorp/deepseek-agw/tree/main/k8s):
@@ -278,9 +352,9 @@ One trap worth repeating, because it fails silently: the cost catalog has to be 
 
 The setup takes an evening. What I get back is the five things I opened with, and they're all boring in the best way.
 
-The key lives in one file, loaded by one process — **secure**. Rotating it means editing that file and restarting one thing, instead of hunting through four config directories, and `~/.dsh` holds a string I invented, so if that directory ends up somewhere it shouldn't, nothing happens. Harness asks for `gpt-4o` and the gateway decides what actually answers — **route**. Every call is on a page with its status and resolved model — **log**. And when someone asks what an agent cost to run, I have a number instead of a shrug — **cost**.
+The real key lives in one file, loaded by one process, and `~/.dsh` holds a virtual key that's worthless anywhere else — **secure**. Rotating the real one means editing a file and restarting a single thing, instead of hunting through four config directories. Harness asks for `gpt-4o` and the gateway decides what actually answers — **route**. Every call is on a page with its status and resolved model — **log**. When someone asks what an agent cost to run, I have a number instead of a shrug — **cost**. And the door only opens for a key I issued, under a token ceiling, refusing prompts that look like secrets — **govern**.
 
-**Govern** is the one I left on the table here, and it's the one that matters most the day you stop being the only user. It's the same binary: a virtual key per client, a regex guard on what can be sent, a rate limit, a spend cap. Nothing about Harness changes when you turn those on — that's the whole advantage of putting the control point outside the app.
+That last one is the reason this is worth an evening rather than a `curl`. The first four make the setup pleasant. Governance is what makes it something you can leave running while you're asleep, or hand to someone who isn't you. And notice where all of it lives: five controls, none of them inside the agent framework. Harness never learned that any of this exists.
 
 MCP isn't wired into this one yet — same gateway, later. Given that Harness makes *everything* a plugin, including its tools, that's the obvious next stop. But the shape keeps repeating. Whether it's [Claude Code and Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/), [OpenMausBot](/articles/2026-08-15-openmausbot-standalone-agentgateway/), or DeepSeek Harness, the app stays on loopback with a fake token and the secret stays in the gateway. Every new toy just points at `/v1`.
 
