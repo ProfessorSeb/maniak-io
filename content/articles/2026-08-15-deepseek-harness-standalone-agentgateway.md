@@ -1,29 +1,37 @@
 ---
 title: "How To: Point DeepSeek Harness at standalone agentgateway"
 date: 2026-08-15
-description: "DeepSeek Harness is a local agent UI that wants an API key. I gave it a dummy one. The real OPENAI_API_KEY stayed in the agentgateway process, and the token count, the USD number, and the traces stayed with it."
+description: "A new agent UI asked me for my OpenAI key. I gave it a fake one, put agentgateway behind it, and finally got an answer to the question none of these tools can answer: what did that conversation actually cost?"
 tags: ["agentgateway", "deepseek", "harness", "openai", "standalone", "cost", "kubernetes"]
 categories: ["AI Gateway"]
 author: "Sebastian Maniak"
 ---
 
-Another local agent UI, another form field asking for my OpenAI key. This time it was [DeepSeek Harness](https://github.com/deepseek-ai/dsh) — `dsh`, the agent UI you get from a single `npx`.
+I try a lot of agent UIs. They all ask me the same thing on the first screen.
 
-Same answer as always: **the UI gets a dummy token, the gateway holds the real one.**
+**Paste your OpenAI key here.**
 
-Harness talks to `http://127.0.0.1:4002/v1` with a string I made up. Standalone [agentgateway](https://agentgateway.dev) is the only process on the box that ever sees `OPENAI_API_KEY`. Token counts, the USD number, and the Jaeger traces live on the gateway, not in the app.
+This week it was [DeepSeek Harness](https://github.com/deepseek-ai/dsh) — `dsh`, a local agent workspace you get from a single `npx`. It's genuinely nice: chat on one side, the agent's trajectory on the other, sessions in a sidebar, running entirely on your laptop against whatever model you point it at. I wanted to like it.
 
-Two turns through it — `2+2` and the capital of France — came out to **39 tokens, 2 calls, $0.0000072**. That's the whole point: I can say that number out loud.
+Then I hit **Settings → Models**, and there was the box.
 
-👉 Everything here is in the repo: **[sebbycorp/deepseek-agw](https://github.com/sebbycorp/deepseek-agw)** · Haven't run the binary yet? Start with **[agentgateway standalone locally](/articles/2026-03-12-agentgateway-quickstart-standalone/)**
+I stopped pasting real keys into that box a while ago. Not because these tools are shady — Harness is open source and I can read exactly what it does with the key. It's what happens *after*. The key gets written to a config file in my home directory. That directory gets synced, or backed up, or copied to a second laptop. Six months later there are four tools on my machine holding the same secret, and I can't answer two questions that should be easy: **which of these things has my key, and what did each of them spend?**
+
+So I did the thing I now do with every new toy. I gave Harness a key I made up on the spot — `local-harness-not-openai` — and put [agentgateway](https://agentgateway.dev) behind it, running as a plain binary on the same laptop. Harness talks to the gateway. The gateway talks to OpenAI. Only one of those two processes has ever seen my real key.
+
+It took an evening, including the ten minutes I spent breaking it. At the end I asked it two deliberately boring questions and the gateway told me the conversation cost **$0.0000072**. A useless number on its own — but I've never been able to say it out loud before, and that's the part I want.
+
+Here's the whole thing, including the two places I tripped.
+
+👉 Everything below is in the repo: **[sebbycorp/deepseek-agw](https://github.com/sebbycorp/deepseek-agw)** · Never run the gateway binary before? Start with **[agentgateway standalone locally](/articles/2026-03-12-agentgateway-quickstart-standalone/)**
 
 ![DeepSeek Harness picking gpt-4o on the agentgateway provider and answering a turn](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-run.gif)
 
 ---
 
-## Architecture
+## The shape of it
 
-Three processes on one laptop. Harness is the one I talk to. The gateway is the one with the wallet.
+Three processes on one laptop, and the only interesting part is which one holds the secret.
 
 ```mermaid
 flowchart LR
@@ -33,36 +41,15 @@ flowchart LR
   agw --> jaeger["Jaeger :16686"]
 ```
 
-| Piece | Holds the real key? | What it does |
-|-------|---------------------|--------------|
-| **DeepSeek Harness** `:3080` | No — dummy token | The agent UI. Speaks OpenAI-compatible to the gateway. |
-| **agentgateway** `:4002` | **Yes** — process env only | Injects the real key, meters tokens and cost, emits traces. |
-| **Admin UI** `:14010` | No | Analytics, Logs, Costs for everything above. |
-| **Jaeger** `:16686` | No | OTLP traces from the gateway. |
+Harness thinks it's talking to OpenAI. It isn't — it's talking to a gateway on `127.0.0.1:4002` that speaks the same OpenAI-compatible dialect, accepts my made-up token, and quietly swaps in the real key on the way out. Because every request passes through that one process, it's also the natural place to count tokens, add up dollars, and emit traces.
 
-The key is not in GitHub, not in `$DSH_HOME`, and not in the harness process. A mode-600 file gets sourced by a start script and exported into the gateway process only. The committed YAML has a `$OPENAI_API_KEY` placeholder and nothing else.
+The rule I care about: **the key is not in GitHub, not in Harness's config directory, and not in the Harness process.** It lives in one file on disk with mode 600, and it gets loaded into exactly one process.
 
 ---
 
-## What was actually on my desk
+## Standing up the gateway
 
-| Thing | Value |
-|-------|-------|
-| agentgateway | **1.4.1**, pinned |
-| Node | **24** — Node 20 is too old for current `dsh` |
-| Harness UI | `http://127.0.0.1:3080` |
-| LLM listener | `http://127.0.0.1:4002/v1` |
-| Admin UI | `http://127.0.0.1:14010/ui` |
-| Metrics | `http://127.0.0.1:14030` |
-| Models | `gpt-4o`, `gpt-4o-mini` |
-| Session title | "Simple Arithmetic Query" |
-| The bill | 39 tokens · 2 calls · $0.0000072 |
-
----
-
-## Standalone agentgateway
-
-Node 24 first, because current `dsh` won't run on 20:
+Node first, and this one is worth stating plainly because it cost me a confusing minute: current `dsh` does not run on Node 20. Use 24.
 
 ```bash
 nvm install 24
@@ -70,21 +57,21 @@ nvm use 24
 node -v
 ```
 
-Gateway and `agctl`, pinned. I'm on the [1.4 OSS line](/articles/2026-07-27-agentgateway-1-4-oss-from-1-3/):
+Then the gateway itself, pinned to 1.4.1 — I'm on the [1.4 OSS line](/articles/2026-07-27-agentgateway-1-4-oss-from-1-3/):
 
 ```bash
 curl -sL https://agentgateway.dev/install | bash -s -- --version v1.4.1
 agentgateway --version
 ```
 
-Import the cost catalog once. This is what turns raw token counts into a dollar figure:
+Next, the piece people skip. The gateway can count tokens on its own, but tokens aren't money. Import the cost catalog once and it can turn those counts into dollars:
 
 ```bash
 mkdir -p costs
 agctl costs import --source models.dev --providers openai --out ./costs/catalog.json
 ```
 
-Jaeger all-in-one, if you want the traces:
+If you want traces too, Jaeger all-in-one is one command. Skip it if you don't care — nothing else depends on it:
 
 ```bash
 docker run -d --name jaeger \
@@ -93,7 +80,7 @@ docker run -d --name jaeger \
   jaegertracing/all-in-one:latest
 ```
 
-The config carries **no secret** — just the placeholder:
+Now the config. The thing to notice is what *isn't* in it — there's no secret here, just a placeholder, which is why this file is safe to commit:
 
 ```yaml
 config:
@@ -117,7 +104,7 @@ llm:
         apiKey: "$OPENAI_API_KEY"
 ```
 
-The real key goes in a mode-600 file that git never sees:
+The real key goes in its own file, locked down, and git never sees it:
 
 ```bash
 mkdir -p .secrets
@@ -126,7 +113,7 @@ printf 'export OPENAI_API_KEY=sk-...\n' > .secrets/openai.env
 chmod 600 .secrets/openai.env
 ```
 
-And the start script sources that file into **this process only**, refusing to boot if it's missing or empty:
+And a small start script does the only clever thing in this whole setup — it sources that file into *this process and nothing else*, then refuses to start if the key didn't make it:
 
 ```bash
 #!/usr/bin/env bash
@@ -142,30 +129,26 @@ exec agentgateway -f "$ROOT/agentgateway.yaml"
 ./start-agw.sh
 ```
 
-Confirm the admin UI at `http://127.0.0.1:14010/ui` **before** you touch Harness. If the gateway isn't up, the next section just produces confusing errors.
+Open `http://127.0.0.1:14010/ui` and make sure the admin UI is actually there before moving on. If the gateway isn't running, everything in the next section fails in ways that look like Harness problems but aren't.
 
 ---
 
-## Start Harness with a fake key
+## Handing Harness a fake key
 
 ```bash
 export GATEWAY_API_KEY=local-harness-not-openai
 npx @deepseek-ai/dsh web
 ```
 
-That's the dummy. Read it again — `local-harness-not-openai`. It is not a credential, it's a label. The gateway is on loopback and swaps in the real thing.
+Read that token again: `local-harness-not-openai`. It isn't a credential, it's a label. The gateway is sitting on loopback and will accept it happily, then attach the real key on the way upstream.
 
-Now **don't send a turn yet.** Out of the box, the first message goes to `deepseek-official` with no `DEEPSEEK_API_KEY` on this box, and you get a confusing failure that has nothing to do with the gateway. Wire it up first.
+Harness comes up on `http://127.0.0.1:3080`. **Don't send a message yet** — mine failed, and I'll get to why in a minute. Wire the provider first.
 
----
-
-## Wire Harness to the gateway
-
-Open `http://127.0.0.1:3080` and go to **Settings → Models**. DeepSeek stays red here — there's no DeepSeek key on this laptop, and I don't want one. The custom agentgateway row is green.
+Go to **Settings → Models**. DeepSeek shows up red here because there's no DeepSeek key on this laptop and I don't want one. The custom agentgateway row is the green one:
 
 ![Settings → Models with DeepSeek red and the agentgateway custom provider green](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-settings.png)
 
-Add a custom provider — or edit the one already in `$DSH_HOME/settings.yaml`:
+Add a custom provider and fill in the form. This is the entire integration — a base URL and a fake token:
 
 | Field | Value |
 |-------|-------|
@@ -178,15 +161,15 @@ Add a custom provider — or edit the one already in `$DSH_HOME/settings.yaml`:
 
 ![Provider detail showing base URL 127.0.0.1:4002/v1, protocol openai-completions, and a dummy key already set](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-settings-detail.png)
 
-Then add the models — at least `gpt-4o` and `gpt-4o-mini` — and **change max output tokens to 8192**. This is the one that cost me a few minutes, so it gets its own section below.
+Then add the models — `gpt-4o` and `gpt-4o-mini` are enough to start — and change **max output tokens to 8192** while you're in there. That number matters more than it looks, which is the first of my two mistakes:
 
 ![Customized model catalog with gpt-4o max output tokens set to 8192](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-models-max-tokens.png)
 
-**New Session**, and pick **agentgateway / gpt-4o**. The picker groups the DeepSeek models separately from the custom provider, so it's hard to get wrong once you know to look.
+Finally, **New Session**, and pick **agentgateway / gpt-4o**. The picker keeps the DeepSeek models in their own group above the custom provider, so once you know to look it's hard to get wrong:
 
 ![Model picker with gpt-4o selected under the agentgateway provider](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-model-picker.png)
 
-Prefer files? The UI just writes `$DSH_HOME/settings.yaml` (usually `~/.dsh`), so you can skip the clicking:
+None of this has to happen in the browser, by the way. The UI is just writing `$DSH_HOME/settings.yaml` — usually `~/.dsh` — so you can skip the clicking entirely:
 
 ```yaml
 llm-pi-ai:
@@ -202,57 +185,60 @@ llm-pi-ai:
           maxTokens: 8192
 ```
 
-The dummy token lands in `$DSH_HOME/.credentials.yaml`. That file holds `GATEWAY_API_KEY`, never `OPENAI_API_KEY`. If you exported the variable before `npx`, Harness resolves it from the env instead. Same dummy, same rule: **nothing real goes in `$DSH_HOME`.**
+The token lands in a second file, `$DSH_HOME/.credentials.yaml`. Worth opening once just to reassure yourself: it holds `GATEWAY_API_KEY`, the fake one. `OPENAI_API_KEY` never appears anywhere in that directory.
 
 ---
 
-## The two gotchas
+## Where I tripped
 
-Both of these bit me, and neither is the gateway's fault:
+Two failures, ten minutes, neither one the gateway's fault. I'm writing both down because I'd have saved the evening if someone else had.
 
-| Symptom | What's happening | Fix |
-|---------|------------------|-----|
-| `gpt-4o` returns **400** | Harness defaults `maxTokens` to **32768**. `gpt-4o` caps completion tokens at **16384**. | Set max output tokens to 16384 or 8192 |
-| First turn fails on a missing key | The session is still on `deepseek-official`, and there's no `DEEPSEEK_API_KEY` here | **New Session** → `agw` / `gpt-4o` |
+**The first turn failed on a missing key.** I'd wired everything up, typed a message, and got an error about a DeepSeek credential — which made no sense, because I'd just spent twenty minutes making sure this thing pointed at OpenAI. The catch: my session had been created *before* I added the provider, so it was still sitting on `deepseek-official`, and there's no `DEEPSEEK_API_KEY` on this box. My careful config was real; the session just wasn't using it. **New Session**, pick `agw`, move on.
 
-That's the entire troubleshooting section. Once the provider is right and the token cap is sane, it just works.
+**Then `gpt-4o` started returning 400.** This one is sneakier. Harness defaults max output tokens to **32768**, and `gpt-4o` caps completion tokens at **16384**. Every request was asking for more headroom than the model allows, and OpenAI was rejecting it before a single token got generated. Set it to 16384 or 8192 and it clears up immediately.
+
+That's the entire troubleshooting section. Fix the provider, fix the ceiling, and it just works.
 
 ---
 
-## Two turns, then the receipts
+## Two boring questions
 
-I kept the test deliberately boring:
+I kept the test deliberately dull, because I wasn't testing the model — I was testing the plumbing:
 
 - *"What is 2+2? Reply with just the number."* → **4**
 - *"Name the capital of France in one word."* → **Paris**
 
 ![Two-question run through gpt-4o answering 4 and Paris](/images/articles/2026-08-15-deepseek-harness-agentgateway/harness-run.png)
 
-Now the part I actually care about. Open the admin UI and the traffic is right there — **39 tokens, 2 calls, $0.0000072** — broken down by model, user, and provider:
+Four and Paris. Not exactly a demo you'd put on a conference slide. But those two answers travelled from a UI holding a fake token, through a gateway holding the real one, out to OpenAI and back — which is the only thing I wanted to prove.
+
+Now the part I actually built this for. Over in the admin UI, that conversation has a receipt: **39 tokens, 2 calls, $0.0000072**, broken out by model, user, and provider.
 
 ![agentgateway Analytics showing 39 tokens and 2 calls in the last 24 hours](/images/articles/2026-08-15-deepseek-harness-agentgateway/agw-ui.png)
 
 ![agentgateway admin UI with Analytics and the cost total for the run](/images/articles/2026-08-15-deepseek-harness-agentgateway/agw-costs.gif)
 
-And the Logs page proves the dummy-token path really did reach OpenAI — two `CHAT` / `200` rows, with model routing resolving `gpt-4o-mini` → `gpt-4o-mini-2024-07-18`, provider `openai`. No key anywhere on the page:
+The Logs page is the proof that the dummy token really did reach OpenAI and come back: two `CHAT` rows, both `200`, model routing resolving `gpt-4o-mini` to `gpt-4o-mini-2024-07-18` on provider `openai`. And no key anywhere on the page, which is the whole idea.
 
 ![agentgateway Logs showing two CHAT 200 calls](/images/articles/2026-08-15-deepseek-harness-agentgateway/agw-logs.png)
 
-If you want the deeper version of this view, I wrote up the [cost and tokenomics dashboard](/articles/2026-06-24-agentgateway-cost-tokenomics-dashboard/) separately.
+Scale that thought up. It's a rounding error for two arithmetic questions, but it's the same counter when an agent runs unattended for an hour. If you want the richer version of this view, I went deeper on it in the [cost and tokenomics dashboard](/articles/2026-06-24-agentgateway-cost-tokenomics-dashboard/) post.
 
 ---
 
-## The same thing on Kubernetes
+## The same trick on a cluster
 
-The pattern doesn't change when you move it to a cluster — only where the secret lives. The mode-600 file becomes a Secret, and the local config becomes CRDs. The repo has these as applyable files under [`k8s/`](https://github.com/sebbycorp/deepseek-agw/tree/main/k8s):
+Nothing about the pattern changes when this moves off the laptop. Only the hiding place for the secret does — the mode-600 file becomes a Kubernetes Secret, and the local YAML becomes a handful of CRDs. The repo has them as applyable files under [`k8s/`](https://github.com/sebbycorp/deepseek-agw/tree/main/k8s):
 
-| Standalone | Kubernetes |
-|------------|------------|
+| On my laptop | On a cluster |
+|--------------|--------------|
 | mode-600 `.secrets/openai.env` | `openai-secret` Secret, `Authorization` key |
-| `llm.models` in the YAML | `AgentgatewayBackend` + `/v1` `HTTPRoute` |
+| `llm.models` in the YAML | `AgentgatewayBackend` + a `/v1` `HTTPRoute` |
 | `config.modelCatalog` | ConfigMap + `AgentgatewayParameters` on the **Gateway** |
 | `config.tracing` | `AgentgatewayPolicy` → Jaeger |
-| `http://127.0.0.1:4002/v1` | `http://127.0.0.1:8080/v1` via port-forward |
+| `http://127.0.0.1:4002/v1` | `http://127.0.0.1:8080/v1` through a port-forward |
+
+Harness doesn't notice the difference. Same provider form, same fake token, one different URL:
 
 ```bash
 kubectl port-forward -n agentgateway-system deploy/agentgateway-proxy 8080:80
@@ -260,25 +246,21 @@ export GATEWAY_API_KEY=local-harness-not-openai
 npx @deepseek-ai/dsh web
 ```
 
-Harness doesn't care. Same provider form, same dummy token, different base URL.
+One trap worth repeating, because it fails silently: the cost catalog has to be attached to the **Gateway** via `AgentgatewayParameters`. Hang it off the GatewayClass and it's simply ignored — no error, just no dollar figures.
 
-One trap worth repeating: the cost catalog has to be attached to the **Gateway** through `AgentgatewayParameters`. A GatewayClass-level catalog is quietly ignored.
-
-**Fair warning:** I ran the standalone path end to end — that's where the screenshots come from. The Kubernetes manifests mirror the 1.4.x CRDs but I didn't stand a cluster up for this one, so treat them as a starting point rather than something I've proven. The general cluster walkthrough is in [agentgateway quickstart on Kubernetes](/articles/2026-03-12-agentgateway-quickstart-kubernetes/).
+**Being straight with you:** the standalone path is the one I actually ran, and every screenshot above comes from it. The manifests mirror the 1.4.x CRDs, but I didn't stand a cluster up for this one, so treat them as a starting point rather than something I've proven. For a cluster walkthrough I *have* run, see [agentgateway quickstart on Kubernetes](/articles/2026-03-12-agentgateway-quickstart-kubernetes/).
 
 ---
 
-## Why bother
+## Why I keep doing this
 
-| Without the gateway | With it |
-|---------------------|---------|
-| Real OpenAI key pasted into an agent UI's settings | Key lives in one process, in one mode-600 file |
-| The key spreads to `$DSH_HOME`, then to a backup, then who knows | `$DSH_HOME` holds a string I invented |
-| "What did that session cost?" — no idea | 39 tokens, 2 calls, $0.0000072 |
-| Rotating the key means touching every tool | Rotate the file, restart the gateway |
-| No traces for a local agent | Jaeger on `:16686` |
+The setup takes an evening. What I get back is boring in the best way:
 
-MCP isn't wired in this first pass — same gateway, later. But the shape is already familiar: whether it's [Claude Code and Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/), [OpenMausBot](/articles/2026-08-15-openmausbot-standalone-agentgateway/), or DeepSeek Harness, the app stays on loopback and the secret stays in the gateway. Every new toy just points at `/v1`.
+The key lives in one file, loaded by one process. Rotating it means editing that file and restarting one thing, instead of hunting through four config directories. `~/.dsh` holds a string I invented, so if that directory ends up somewhere it shouldn't, nothing happens. And when someone asks what an agent cost to run, I open a page instead of shrugging.
+
+MCP isn't wired into this one yet — same gateway, later. But the shape keeps repeating. Whether it's [Claude Code and Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/), [OpenMausBot](/articles/2026-08-15-openmausbot-standalone-agentgateway/), or DeepSeek Harness, the app stays on loopback with a fake token and the secret stays in the gateway. Every new toy just points at `/v1`.
+
+Which means the next one takes ten minutes, not an evening. That's really why I bother.
 
 ---
 
