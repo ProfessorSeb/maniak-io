@@ -1,27 +1,49 @@
 ---
 title: "How To: Point DeepSeek Harness at standalone agentgateway"
 date: 2026-08-15
-description: "A new agent UI asked me for my OpenAI key. I gave it a fake one, put agentgateway behind it, and finally got an answer to the question none of these tools can answer: what did that conversation actually cost?"
+description: "DeepSeek just open-sourced Harness, an agent framework where everything is a plugin — including where your tokens come from. Here's how I put agentgateway in front of it to govern, secure, route, log, and cost every call it makes."
 tags: ["agentgateway", "deepseek", "harness", "openai", "standalone", "cost", "kubernetes"]
 categories: ["AI Gateway"]
 author: "Sebastian Maniak"
 ---
 
-I try a lot of agent UIs. They all ask me the same thing on the first screen.
+## First, what is DeepSeek Harness?
 
-**Paste your OpenAI key here.**
+Two days ago — **August 13, 2026** — DeepSeek open-sourced [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), and the README's pitch is one line: **everything is a plugin.**
 
-This week it was [DeepSeek Harness](https://github.com/deepseek-ai/dsh) — `dsh`, a local agent workspace you get from a single `npx`. It's genuinely nice: chat on one side, the agent's trajectory on the other, sessions in a sidebar, running entirely on your laptop against whatever model you point it at. I wanted to like it.
+Not marketing-everything. Actually everything. Models, tools, skills, sessions, sandboxes, storage, the agent loop, scheduling, even the UI are all swappable from configuration. It's MIT licensed, it's an honest developer preview — the package reads `0.1.0-rc.5` and the README promises breaking changes — and you can be running it in one command:
 
-Then I hit **Settings → Models**, and there was the box.
+```bash
+npx @deepseek-ai/dsh web
+```
 
-I stopped pasting real keys into that box a while ago. Not because these tools are shady — Harness is open source and I can read exactly what it does with the key. It's what happens *after*. The key gets written to a config file in my home directory. That directory gets synced, or backed up, or copied to a second laptop. Six months later there are four tools on my machine holding the same secret, and I can't answer two questions that should be easy: **which of these things has my key, and what did each of them spend?**
+What comes up is a local agent workspace: chat on one side, the agent's trajectory on the other, sessions in a sidebar, a model picker at the bottom. It runs on your laptop, with filesystem and shell access, and it's good.
 
-So I did the thing I now do with every new toy. I gave Harness a key I made up on the spot — `local-harness-not-openai` — and put [agentgateway](https://agentgateway.dev) behind it, running as a plain binary on the same laptop. Harness talks to the gateway. The gateway talks to OpenAI. Only one of those two processes has ever seen my real key.
+The plugin that matters for this post is the one deciding **where the tokens come from.** Harness will talk to DeepSeek's own models, or to any OpenAI-compatible endpoint you point it at. It asks for exactly one thing in return, on the **Settings → Models** screen: an API key.
 
-It took an evening, including the ten minutes I spent breaking it. At the end I asked it two deliberately boring questions and the gateway told me the conversation cost **$0.0000072**. A useless number on its own — but I've never been able to say it out loud before, and that's the part I want.
+That's the moment worth pausing on. A two-day-old agent framework, running with shell access, asking for a provider key it will write to a file in my home directory — and once it has it, every call it makes is between those two parties. No one else sees the traffic. Nothing counts it. Nothing constrains it.
 
-Here's the whole thing, including the two places I tripped.
+## And what is agentgateway?
+
+**[agentgateway](https://agentgateway.dev)** is an open source connectivity data plane built specifically for agent traffic — LLM calls, MCP tool calls, and agent-to-agent. I've written about [why that needs to be its own thing](/articles/2026-03-12-what-is-agentgateway-dev/) rather than a reverse proxy with extra steps.
+
+For this post the relevant part is simple: it's a single binary that speaks the OpenAI API dialect. Anything that can call OpenAI can call it instead — including Harness.
+
+## What we're actually here to do
+
+Put the gateway between Harness and the provider, and that one hop becomes the place where five things live that the harness has no opinion about:
+
+- **Govern** — one place that decides what this client is allowed to ask for. Virtual keys, prompt guards, rate limits, spend caps.
+- **Secure** — the real `OPENAI_API_KEY` stays inside the gateway process. Harness gets a token I invented, and it works just as well.
+- **Route** — Harness asks for a model by name; the gateway decides which provider and which exact model version actually serves it.
+- **Log** — every call, its status, and the model it resolved to, on one page. Without a proxy, this traffic is invisible.
+- **Cost** — tokens turned into dollars with a cost catalog, attributed per model and per user.
+
+Honest scope: this walkthrough wires up **secure, route, log, and cost**. The governance knobs — virtual keys, regex guards, rate limits — are the same gateway and a config block away, and I set those up in the [OpenMausBot post](/articles/2026-08-15-openmausbot-standalone-agentgateway/) if you want them now.
+
+By the end of it I asked Harness two deliberately boring questions, and the gateway handed me a receipt: **39 tokens, 2 calls, $0.0000072.** A meaningless amount of money, and exactly the point — that number simply does not exist when an agent talks to a provider directly.
+
+Here's the whole build, including the two places I broke it.
 
 👉 Everything below is in the repo: **[sebbycorp/deepseek-agw](https://github.com/sebbycorp/deepseek-agw)** · Never run the gateway binary before? Start with **[agentgateway standalone locally](/articles/2026-03-12-agentgateway-quickstart-standalone/)**
 
@@ -254,11 +276,13 @@ One trap worth repeating, because it fails silently: the cost catalog has to be 
 
 ## Why I keep doing this
 
-The setup takes an evening. What I get back is boring in the best way:
+The setup takes an evening. What I get back is the five things I opened with, and they're all boring in the best way.
 
-The key lives in one file, loaded by one process. Rotating it means editing that file and restarting one thing, instead of hunting through four config directories. `~/.dsh` holds a string I invented, so if that directory ends up somewhere it shouldn't, nothing happens. And when someone asks what an agent cost to run, I open a page instead of shrugging.
+The key lives in one file, loaded by one process — **secure**. Rotating it means editing that file and restarting one thing, instead of hunting through four config directories, and `~/.dsh` holds a string I invented, so if that directory ends up somewhere it shouldn't, nothing happens. Harness asks for `gpt-4o` and the gateway decides what actually answers — **route**. Every call is on a page with its status and resolved model — **log**. And when someone asks what an agent cost to run, I have a number instead of a shrug — **cost**.
 
-MCP isn't wired into this one yet — same gateway, later. But the shape keeps repeating. Whether it's [Claude Code and Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/), [OpenMausBot](/articles/2026-08-15-openmausbot-standalone-agentgateway/), or DeepSeek Harness, the app stays on loopback with a fake token and the secret stays in the gateway. Every new toy just points at `/v1`.
+**Govern** is the one I left on the table here, and it's the one that matters most the day you stop being the only user. It's the same binary: a virtual key per client, a regex guard on what can be sent, a rate limit, a spend cap. Nothing about Harness changes when you turn those on — that's the whole advantage of putting the control point outside the app.
+
+MCP isn't wired into this one yet — same gateway, later. Given that Harness makes *everything* a plugin, including its tools, that's the obvious next stop. But the shape keeps repeating. Whether it's [Claude Code and Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/), [OpenMausBot](/articles/2026-08-15-openmausbot-standalone-agentgateway/), or DeepSeek Harness, the app stays on loopback with a fake token and the secret stays in the gateway. Every new toy just points at `/v1`.
 
 Which means the next one takes ten minutes, not an evening. That's really why I bother.
 
