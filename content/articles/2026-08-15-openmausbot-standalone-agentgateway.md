@@ -1,135 +1,105 @@
 ---
 title: "How To: Point OpenMausBot at standalone agentgateway"
 date: 2026-08-15
-description: "OpenMausBot spawns Codex and Claude CLIs — it does not call OpenAI. Point Codex 0.147.0 at standalone agentgateway on :4000 so the real OPENAI_API_KEY, virtual keys, regex guardrails, rate limits, and cost stay in the gateway."
+description: "OpenMausBot is great until every bot is a spawned Codex/Claude CLI with no shared key, guardrail, rate limit, or cost story. Lab walkthrough: Codex 0.147.0 through standalone agentgateway on :4000 — virtual key, regex guards, spend in one place."
 tags: ["agentgateway", "openmausbot", "codex", "openai", "guardrails", "virtual-keys", "cost"]
 categories: ["AI Gateway"]
 author: "Sebastian Maniak"
 ---
 
-[OpenMausBot](https://github.com/milind-soni/OpenMausBot) looks like a chat app. Under the hood it is a harness: the UI on `127.0.0.1:5199` talks to a local server, and that server **spawns `codex` or `claude` on your machine**. It does not call OpenAI. It does not hold `OPENAI_API_KEY`.
+OpenMausBot is great until you realize it never calls OpenAI. It spawns `codex` or `claude` on your laptop, and nobody can answer which bot used which model, when, or for how much.
 
-That is the right shape for a bot roster. It is the wrong shape for a shared OpenAI key, regex guardrails, rate limits, or a cost catalog. Those belong in **[agentgateway](https://agentgateway.dev)** running standalone on `:4000`.
+The pattern I want is the same one I use for [Claude Code / Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/) and [Claude Desktop](/articles/2026-08-12-claude-desktop-entra-agentgateway/): **client on loopback, provider secret in the gateway, one place for policy and cost.**
 
-The path that worked in this lab:
+This guide is the OpenMausBot path running in my lab:
 
-**OpenMausBot → Codex 0.147.0 → agentgateway `:4000` `/v1` → OpenAI**
-
-Proof from Indigo, after "say hi in five words":
-
-**Hi, I'm Indigo, your bot.**
-
-Official Codex recipe: [Point Codex at agentgateway](https://agentgateway.dev/docs/standalone/latest/integrations/llm-clients/codex/). Sibling walkthroughs on this site: [Claude Code & Codex through agentgateway](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/) and [run standalone locally](/articles/2026-03-12-agentgateway-quickstart-standalone/).
+👉 **[milind-soni/OpenMausBot](https://github.com/milind-soni/OpenMausBot)** · Official recipe: **[Codex → agentgateway](https://agentgateway.dev/docs/standalone/latest/integrations/llm-clients/codex/)** · Standalone install: **[run agentgateway locally](/articles/2026-03-12-agentgateway-quickstart-standalone/)**
 
 ---
 
 ## Architecture
 
-OpenMausBot is the chat shell. Codex is the agent. agentgateway is the only process that sees the provider secret.
+OpenMausBot is the chat shell. Codex is the agent. Standalone agentgateway is the only process that sees `OPENAI_API_KEY`.
 
 ```mermaid
 flowchart LR
   UI[OpenMausBot UI<br/>127.0.0.1:5199] -->|HTTP + SSE| H[Harness<br/>spawns CLIs]
   H -->|codex app-server| CX[Codex 0.147.0]
-  CX -->|OpenAI-compatible<br/>/v1| GW[agentgateway :4000]
-  GW -->|inject OPENAI_API_KEY| OA[OpenAI]
+  CX -->|Bearer virtual key<br/>http://127.0.0.1:4000/v1| GW[agentgateway :4000<br/>strict key · regex · rate · cost]
+  GW -->|inject OPENAI_API_KEY| OA[api.openai.com]
 ```
 
 | Hop | What happens |
 |-----|----------------|
-| **1 · Chat** | You talk to a bot (here: **Indigo**) in OpenMausBot. The UI never sees a provider key. |
-| **2 · Spawn** | The harness starts the `codex` CLI. The Codex driver **deletes `OPENAI_API_KEY`** from the child env on purpose so a leaked key cannot flip billing to pay-as-you-go. |
-| **3 · Codex** | Codex 0.147.0 uses its `agentgateway` provider: `base_url = http://127.0.0.1:4000/v1`. |
-| **4 · Gateway** | Standalone agentgateway authenticates a **virtual key**, applies regex guardrails and rate limits, prices the call, then injects the real `OPENAI_API_KEY` upstream. |
+| **1 · Chat** | You talk to a bot (here: **Indigo**) at `http://127.0.0.1:5199`. The UI never sees a provider key. |
+| **2 · Spawn** | The harness starts `codex`. The Codex driver **deletes `OPENAI_API_KEY`** from the child env so a leaked key cannot flip billing to pay-as-you-go. |
+| **3 · Codex** | Codex 0.147.0 uses `model_provider = "agentgateway"` and `base_url = "http://127.0.0.1:4000/v1"`. |
+| **4 · Gateway** | Strict virtual key, regex guardrails, token rate limit, cost catalog, then inject the real OpenAI key upstream. |
 
-Claude is the same idea with `ANTHROPIC_BASE_URL`. In this session the Claude path died first (`claude exited 127` — wrapper present, real CLI not installed). Codex on **GPT-5.6 Sol** is the path that returned the five-word hello.
+Path is `/v1` on the standalone LLM listener so Codex can call `{base}/v1/responses`. Official docs were tested against `codex-cli 0.144.4`. This lab used **0.147.0**. Default OpenMausBot Codex model in this build is **GPT-5.6 Sol** (`gpt-5.6-sol`).
 
----
-
-## Why the key stays in agentgateway
-
-OpenMausBot's own drivers make the split explicit:
-
-- **Codex** strips `OPENAI_API_KEY` before spawn.
-- **Claude** strips `ANTHROPIC_API_KEY` (and related Claude Code identity vars) before spawn.
-
-So if you paste a provider key into the OpenMausBot process environment, the bot still will not send it. The CLI either uses its own login, or it talks to whatever `base_url` you configured.
-
-Standalone agentgateway is that `base_url`. One binary holds:
-
-- the real `OPENAI_API_KEY`
-- a virtual key for the OpenMausBot caller (`user: openmausbot`, `tier: live`)
-- regex guardrails
-- rate limits
-- the cost catalog
-
-Same pattern as [pointing Claude Desktop at agentgateway](/articles/2026-08-12-claude-desktop-entra-agentgateway/): **client on loopback, secret and policy in the gateway.**
+Claude is the same idea with `ANTHROPIC_BASE_URL`. In this session that path died first (`claude exited 127`). Codex is the path that returned the five-word hello.
 
 ---
 
-## Prerequisites
+## Why OpenMausBot never holds the key
 
-- [OpenMausBot](https://github.com/milind-soni/OpenMausBot) from source (`pnpm dev:server` + `pnpm dev`) or a desktop build. Dev UI is `http://127.0.0.1:5199`.
-- [`codex` CLI 0.147.0](https://github.com/openai/codex) on your `PATH`. Official agentgateway docs were tested against `0.144.4`; this lab used `0.147.0`.
-- The [`agentgateway` binary](https://agentgateway.dev/docs/standalone/latest/deployment/binary/) (or the container image).
-- An `OPENAI_API_KEY` that lives **only** in the gateway environment — not in OpenMausBot, not in a screenshot, not in git.
+OpenMausBot's own drivers make the split explicit. Before spawn:
 
-Optional: a `claude` CLI if you also want the Anthropic path. Without it, a wrapper that sets `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` will exit `127` before any model call.
+- **Codex** deletes `OPENAI_API_KEY`
+- **Claude** deletes `ANTHROPIC_API_KEY` (and Claude Code identity vars)
+
+Paste a provider key into the OpenMausBot process and the bot still will not send it. The CLI either uses its own login, or it talks to whatever `base_url` you configured.
+
+Standalone agentgateway is that `base_url`. One binary holds the real `OPENAI_API_KEY`, a virtual key tagged `user: openmausbot` / `tier: live`, regex guardrails, rate limits, and the cost catalog.
 
 ---
 
-## 1. Run standalone agentgateway
+## Lab values
 
-Install and start the binary with an OpenAI backend. The wildcard model name accepts whatever Codex sends.
+| Thing | Lab value |
+|-------|-----------|
+| OpenMausBot UI | `http://127.0.0.1:5199` |
+| Harness | `127.0.0.1:8799` |
+| Bot | Indigo |
+| Model picker | **GPT-5.6 Sol** |
+| Codex | `0.147.0` · `wire_api = "responses"` |
+| agentgateway LLM | `http://127.0.0.1:4000/v1` |
+| Admin UI | `http://127.0.0.1:15000/ui/` |
+| Virtual key metadata | `user: openmausbot` · `tier: live` |
+| Gateway Overview | LLM **Enabled** · **1 model** · **Port 4000** |
+| Smoke prompt | `say hi in five words.` |
+| Live reply | `Hi, I'm Indigo, your bot.` |
 
-```yaml
-# yaml-language-server: $schema=https://agentgateway.dev/schema/config
-llm:
-  models:
-  - name: "*"
-    provider: openAI
-    params:
-      apiKey: "$OPENAI_API_KEY"
+Confirm the binary anytime:
+
+```bash
+agentgateway --version
+codex --version
+```
+
+Anonymous calls to `:4000` should **401** once `apiKey.mode` is `strict`. A valid virtual key should reach OpenAI.
+
+---
+
+## Standalone agentgateway
+
+Install the [binary](https://agentgateway.dev/docs/standalone/latest/deployment/binary/), then start with a config that does the four jobs this lab cares about: OpenAI upstream, virtual key, regex guard, token budget, cost catalog.
+
+```bash
+curl -sL https://agentgateway.dev/install | bash
+mkdir -p ~/agw-openmausbot/costs
+cd ~/agw-openmausbot
+agctl costs import --source models.dev --providers openai --out ./costs/catalog.json
 ```
 
 ```bash
-export OPENAI_API_KEY='sk-...'   # gateway process only
-agentgateway -f config.yaml
-```
+cat > config.yaml << 'EOF'
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+config:
+  modelCatalog:
+  - file: ./costs/catalog.json
 
-You should get two listeners:
-
-| Port | What it is |
-|------|------------|
-| **4000** | OpenAI-compatible LLM front door (`/v1`) |
-| **15000** | Admin UI — [http://localhost:15000/ui/](http://localhost:15000/ui/) |
-
-The Gateway Overview in this lab showed **LLM Enabled**, **1 model**, **0 virtual models**, **Port 4000**. MCP and Traffic stayed off. That is enough for Codex.
-
-![agentgateway Gateway Overview with LLM enabled, 1 model, and Port 4000](/images/articles/2026-08-15-openmausbot-standalone-agentgateway/agentgateway-overview.png)
-
-Client Setup in the UI can emit the Codex snippet for you. It does not create the model, the virtual key, or the provider credential — it only prints client-side values from config that already exists. Details: [Admin UI / Client Setup](https://agentgateway.dev/docs/standalone/latest/operations/ui/#generate-llm-client-settings).
-
----
-
-## 2. Issue a virtual key for OpenMausBot
-
-Do not hand Codex the real OpenAI key. Issue a **virtual key** and tag it so cost and logs attribute to this caller.
-
-In the Admin UI: **LLM → Virtual API Keys → + New key**. Metadata used here:
-
-| Key | Value |
-|-----|--------|
-| `user` | `openmausbot` |
-| `tier` | `live` |
-
-The UI shows the secret masked (`sk-omb-…`). Copy it once. Treat it like any other credential: it authenticates to **your** gateway, not to OpenAI.
-
-![agentgateway Virtual API Keys page with an OpenMausBot key tagged user openmausbot and tier live](/images/articles/2026-08-15-openmausbot-standalone-agentgateway/virtual-api-keys.png)
-
-Equivalent config (placeholder value only):
-
-```yaml
 llm:
   policies:
     apiKey:
@@ -139,36 +109,114 @@ llm:
         metadata:
           user: openmausbot
           tier: live
+    localRateLimit:
+    - maxTokens: 200000
+      tokensPerFill: 200000
+      fillInterval: 3600s
+      type: tokens
   models:
   - name: "*"
     provider: openAI
     params:
       apiKey: "$OPENAI_API_KEY"
+      tokenize: true
+    guardrails:
+      request:
+      - regex:
+          action: reject
+          rules:
+          - pattern: "api[_-]?key[=:]\\s*\\S+"
+          - pattern: "sk-[A-Za-z0-9_-]{10,}"
+          - builtin: email
+        rejection:
+          status: 400
+          headers:
+            set:
+              content-type: "application/json"
+          body: |
+            {
+              "error": {
+                "message": "Request rejected: sensitive content",
+                "type": "invalid_request_error",
+                "code": "content_policy_violation"
+              }
+            }
+EOF
 ```
 
-`strict` means Codex must send `Authorization: Bearer <virtual key>`. `optional` lets unauthenticated calls through — fine for a laptop smoke test, not what you want once the key is the attribution handle.
+```bash
+export OPENAI_API_KEY='sk-...'                 # gateway process only
+export OPENMAUSBOT_VIRTUAL_KEY='sk-omb-...'    # what Codex presents; not an OpenAI key
+agentgateway -f config.yaml
+```
 
-Docs: [Virtual key management](https://agentgateway.dev/docs/standalone/latest/llm/cost-controls/virtual-keys/).
+| Port | What it serves |
+|------|----------------|
+| **4000** | OpenAI-compatible front door (`/v1/responses`, `/v1/chat/completions`, `/v1/models`) |
+| **15000** | Admin UI — [http://127.0.0.1:15000/ui/](http://127.0.0.1:15000/ui/) |
+| **15020** | Prometheus stats (`agentgateway_gen_ai_client_token_usage`) |
+
+Leave that process running. Gateway Overview in this lab: **LLM Enabled**, **1 model**, **0 virtual models**, **Port 4000**. MCP and Traffic stayed off. That is enough for Codex.
+
+![agentgateway Gateway Overview with LLM enabled, 1 model, and Port 4000](/images/articles/2026-08-15-openmausbot-standalone-agentgateway/agentgateway-overview.png)
+
+`*` on the model name is required. Codex sends the model on each request; you do not pin `gpt-5.6-sol` in the gateway unless you want to reject everything else.
 
 ---
 
-## 3. Guardrails, rate limits, cost
+## Virtual API key
 
-This is the reason the bot does not talk to OpenAI directly.
+Do not hand Codex the real OpenAI key. Issue a virtual key and tag it so cost and logs attribute to this caller.
 
-**Regex guardrails** inspect the prompt (and optionally the response) before the provider sees it. Built-in detectors cover email, phone, SSN, credit card; custom rules catch `api_key=…` style leaks. Reject on the way in, mask or reject on the way out. See [regex filters](https://agentgateway.dev/docs/standalone/latest/llm/prompt-guards/regex/) and the longer [F5 guardrails first steps](/articles/2026-07-03-agentgateway-f5-guardrails-ui-first-steps/) if you want a scanner in front of the same OpenAI-compatible door.
+**LLM → Virtual API Keys → + New key.** Metadata used here:
 
-**Rate limits** stop a looping bot from burning the catalog. Pair them with the virtual-key `user` metadata so Indigo has a budget that is not shared with every other client on `:4000`. Token and dollar budgets: [virtual keys](https://agentgateway.dev/docs/standalone/latest/llm/cost-controls/virtual-keys/) and [hard spend limits](/articles/2026-07-02-agentgateway-ai-budgets-hard-spend-limits/).
+| Field | Lab value |
+|-------|-----------|
+| Name | whatever you want (UI showed `Unnamed key`) |
+| `user` | `openmausbot` |
+| `tier` | `live` |
 
-**Cost** is a catalog, not a guess. Load `config.modelCatalog` (Admin UI **LLM → Costs**, or `agctl costs import`) so each Codex turn gets `agw.ai.usage.cost.total`. Walkthrough: [standalone cost & tokenomics dashboard](/articles/2026-06-24-agentgateway-cost-tokenomics-dashboard/).
+Copy the value once. The UI masks it (`sk-omb-…`). It authenticates to **your** gateway, not to OpenAI.
 
-None of that configuration lives in OpenMausBot. The chat app stays a chat app.
+![agentgateway Virtual API Keys page with an OpenMausBot key tagged user openmausbot and tier live](/images/articles/2026-08-15-openmausbot-standalone-agentgateway/virtual-api-keys.png)
+
+### Critical callouts
+
+**`apiKey.mode` must be `strict` once you care about attribution.**  
+`optional` lets unauthenticated calls through. Fine for a first `curl`. Wrong once `user: openmausbot` is how you read the cost dashboard.
+
+**The virtual key is not `OPENAI_API_KEY`.**  
+OpenMausBot's Codex driver deletes that name from the child env. Put the virtual key in a *different* var (`OPENMAUSBOT_VIRTUAL_KEY`) and point Codex at it with `env_key`. The harness can inherit that var; Codex will still see it after spawn.
+
+**Client Setup does not create anything.**  
+[Admin UI → Client Setup](https://agentgateway.dev/docs/standalone/latest/operations/ui/#generate-llm-client-settings) prints the Codex snippet from config that already exists. It will not invent a route, a model, or a key.
+
+Docs: [virtual key management](https://agentgateway.dev/docs/standalone/latest/llm/cost-controls/virtual-keys/).
 
 ---
 
-## 4. Point Codex at `:4000/v1`
+## Guardrails, rate limits, cost
 
-This is the [official standalone Codex integration](https://agentgateway.dev/docs/standalone/latest/integrations/llm-clients/codex/). Persistent profile:
+This is the reason the bot does not talk to OpenAI directly. The block in `config.yaml` above is the lab set:
+
+| Control | What it does in this lab |
+|---------|--------------------------|
+| Regex `reject` | Blocks prompts that look like `api_key=…`, `sk-…`, or an email ([regex filters](https://agentgateway.dev/docs/standalone/latest/llm/prompt-guards/regex/)) |
+| `localRateLimit` `type: tokens` | 200k tokens / hour on the LLM listener — stop a looping bot |
+| `tokenize: true` | Estimate prompt tokens *before* the provider call so an oversized turn can 429 without spending |
+| `modelCatalog` | Price each Codex turn (`agw.ai.usage.cost.total`) |
+
+`localRateLimit` is gateway-wide on standalone. Per-key daily budgets need a remote rate-limit server — see [budget limits](https://agentgateway.dev/docs/standalone/latest/llm/cost-controls/budget-limits/) and the [hard spend limits](/articles/2026-07-02-agentgateway-ai-budgets-hard-spend-limits/) post if you outgrow the laptop binary.
+
+Cost catalog walkthrough: [standalone cost & tokenomics dashboard](/articles/2026-06-24-agentgateway-cost-tokenomics-dashboard/). Heavier scanner in front of the same OpenAI-compatible door: [F5 guardrails first steps](/articles/2026-07-03-agentgateway-f5-guardrails-ui-first-steps/).
+
+None of that YAML lives in OpenMausBot. The chat app stays a chat app.
+
+---
+
+## Codex → `:4000/v1`
+
+This is the [official standalone Codex integration](https://agentgateway.dev/docs/standalone/latest/integrations/llm-clients/codex/). Write a profile, then make it the default Codex config OpenMausBot's spawned CLI will read.
 
 ```bash
 mkdir -p ~/.codex
@@ -179,49 +227,71 @@ model_provider = "agentgateway"
 name = "OpenAI via agentgateway"
 base_url = "http://127.0.0.1:4000/v1"
 wire_api = "responses"
+env_key = "OPENMAUSBOT_VIRTUAL_KEY"
 EOF
+
+cp ~/.codex/config.toml ~/.codex/config.toml.bak 2>/dev/null || true
+cp ~/.codex/agentgateway.config.toml ~/.codex/config.toml
 ```
 
-One-shot override:
+One-shot override if you do not want to touch the default file:
 
 ```bash
 codex -c 'model_provider="agentgateway"' \
   -c 'model_providers.agentgateway.name="OpenAI via agentgateway"' \
-  -c 'model_providers.agentgateway.base_url="http://127.0.0.1:4000/v1"'
+  -c 'model_providers.agentgateway.base_url="http://127.0.0.1:4000/v1"' \
+  -c 'model_providers.agentgateway.wire_api="responses"' \
+  -c 'model_providers.agentgateway.env_key="OPENMAUSBOT_VIRTUAL_KEY"'
 ```
 
-If the gateway is in `apiKey.mode: strict`, Codex must present the **virtual** key. Do not put the real `OPENAI_API_KEY` back into the OpenMausBot process — the Codex driver will delete that name. Use a dedicated env var (for example `AGENTGATEWAY_API_KEY`) and point Codex at it with `env_key`, or let Client Setup print the recipe for your key.
+### Critical Codex callouts
 
-Smoke-test the CLI before you open the chat UI:
+**`wire_api = "responses"`.**  
+Codex talks `/v1/responses`, not only `/v1/chat/completions`. Miss this and the CLI looks up while the gateway log stays quiet.
+
+**`env_key` must not be `OPENAI_API_KEY`.**  
+That name is stripped on spawn. `OPENMAUSBOT_VIRTUAL_KEY` survives.
+
+**Codex also probes `/v1/models`.**  
+Until [agentgateway#1462](https://github.com/agentgateway/agentgateway/issues/1462) ships a gateway-generated list, you may see a metadata warning. It does not block `/v1/responses`.
+
+Smoke-test the CLI *before* you open the chat UI:
 
 ```bash
+export OPENMAUSBOT_VIRTUAL_KEY='sk-omb-...'
 codex --profile agentgateway "Hello"
 ```
 
-You want a `200` on `/v1/responses` in the agentgateway log, not a direct `api.openai.com` call from the bot.
-
-OpenMausBot's default Codex model in this build is **GPT-5.6 Sol** (`gpt-5.6-sol`). That is what the Indigo picker showed when the five-word reply landed.
+You want a `200` on `/v1/responses` in the agentgateway log (`endpoint=api.openai.com:443`, `gen_ai.provider.name=openai`). A direct ChatGPT login from the bot means the profile did not load.
 
 ---
 
-## 5. Talk to Indigo
+## OpenMausBot / Indigo
 
-1. Start the harness and the app (`pnpm dev:server` / `pnpm dev`, or the desktop build).
-2. Open `http://127.0.0.1:5199`.
-3. Pick the bot (here: **Indigo**), set the model to **GPT-5.6 Sol**.
-4. Send a boring prompt: `say hi in five words.`
+Start the harness, then the app. Released desktop builds embed the harness; from source you need both:
 
-Expected reply:
+```bash
+git clone https://github.com/milind-soni/OpenMausBot && cd OpenMausBot
+pnpm install
+export OPENMAUSBOT_VIRTUAL_KEY='sk-omb-...'   # virtual key only
+pnpm dev:server    # 127.0.0.1:8799
+pnpm dev           # http://127.0.0.1:5199
+```
 
-> Hi, I'm Indigo, your bot.
+1. Open `http://127.0.0.1:5199`
+2. Select the bot (**Indigo**)
+3. Model picker → **GPT-5.6 Sol**
+4. Send `say hi in five words.`
+
+Walkthrough expectation: first Claude turn may fail if `claude` is not installed (see below) → switch / stay on Codex → five-word reply comes back through the gateway footer.
+
+**Hi, I'm Indigo, your bot.**
 
 ![OpenMausBot Indigo chat on 127.0.0.1:5199 — Claude wrapper error, then a five-word Codex reply through agentgateway](/images/articles/2026-08-15-openmausbot-standalone-agentgateway/openmausbot-indigo-chat.png)
 
-That screenshot is the whole story in one thread: a red Claude failure, then a Codex turn that came back through the gateway.
-
 ---
 
-## What the Claude path told me
+## Claude path: exit 127
 
 The first turn in that thread failed with:
 
@@ -230,22 +300,27 @@ claude exited 127 before result: openmausbot-agw wrapper: real claude CLI not in
 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 (agentgateway)
 ```
 
-Exit `127` is "command not found". A PATH wrapper was already pointing Claude at agentgateway; the real `claude` binary was not installed. Useful as a diagnostic — the wrapper is doing the right redirect — and a reminder that OpenMausBot will not invent an Anthropic client for you. Install the CLI, or stay on Codex.
+Exit `127` is "command not found". A PATH wrapper was already pointing Claude at agentgateway; the real `claude` binary was not on disk. The wrapper is doing the right redirect. OpenMausBot will not invent an Anthropic client for you.
 
-Same rule as the Codex driver: even after you install `claude`, keep `ANTHROPIC_API_KEY` on the gateway, not in the bot.
+Install the CLI if you want that path, and keep `ANTHROPIC_API_KEY` on the gateway — the Claude driver deletes it from the child the same way Codex deletes `OPENAI_API_KEY`.
+
+```bash
+# after `claude` is actually installed
+export ANTHROPIC_BASE_URL='http://127.0.0.1:4000'
+```
 
 ---
 
 ## Why bother
 
-| Without the gateway | With this path |
-|---------------------|----------------|
+| Without gateway | With this path |
+|-----------------|----------------|
 | OpenAI key on the laptop / in the bot process | Key stays in the agentgateway environment |
 | Codex talks to OpenAI with no shared policy | Virtual key + regex guardrails + rate limits |
 | No per-bot spend story | Cost catalog and `user: openmausbot` attribution |
 | Every new chat app grows another secret | One `:4000` front door, many clients |
 
-If you already route [Claude Code or Codex](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/) through agentgateway, this is the chat-app sibling: same localhost proxy, same `/v1`, a bot named Indigo instead of a terminal.
+If you already route Claude Code or Codex through agentgateway, this is the chat-app sibling: same localhost proxy, same `/v1`, a bot named Indigo instead of a terminal.
 
 ---
 
@@ -258,9 +333,9 @@ If you already route [Claude Code or Codex](/articles/2026-05-08-claude-codex-pa
 - Related: [How To: Run agentgateway standalone locally](/articles/2026-03-12-agentgateway-quickstart-standalone/)
 - Related: [How To: Connect Claude Code & Codex through agentgateway](/articles/2026-05-08-claude-codex-passthrough-through-agentgateway/)
 - Related: [How To: Point Claude Desktop at agentgateway with Entra SSO](/articles/2026-08-12-claude-desktop-entra-agentgateway/)
+- Related: [Route MCP / Claude traffic through agentgateway](/articles/2026-02-18-route-mcp-traffic-claude-through-agentgateway/)
 - Related: [agentgateway standalone cost & tokenomics dashboard](/articles/2026-06-24-agentgateway-cost-tokenomics-dashboard/)
 - Related: [Hard spend limits for LLM traffic](/articles/2026-07-02-agentgateway-ai-budgets-hard-spend-limits/)
 - Related: [First steps: agentgateway and F5 AI Guardrails](/articles/2026-07-03-agentgateway-f5-guardrails-ui-first-steps/)
 - Related: [What is agentgateway.dev?](/articles/2026-03-12-what-is-agentgateway-dev/)
 - Related: [Why your AI agents need a gateway](/articles/2026-02-19-why-your-ai-agents-need-a-gateway/)
-- Related: [The 8 principles of an AI gateway](/articles/2026-07-12-eight-principles-of-an-ai-gateway-agentgateway/)
