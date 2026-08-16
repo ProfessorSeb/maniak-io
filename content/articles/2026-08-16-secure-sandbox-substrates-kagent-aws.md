@@ -83,11 +83,7 @@ Here it is answering the question live, with **10 of 10 tool calls** succeeding 
 
 Notice what the agent does when a permission is missing: it says the API was **denied**. It does not paper over the gap with a plausible-sounding guess. That honesty is a security property too — an agent that fabricates a "$0 spend" to be helpful is an agent you can't trust with a budget.
 
-The tools themselves are a curated, read-mostly catalog. There is **no generic "run any AWS CLI" tool** — the single most important design decision in the whole demo.
-
-![The kagent tool panel listing the agent's ten AWS tools: aws_whoami, aws_cost_month, aws_cost_by_service, aws_budgets, aws_ec2_capacity, aws_asg, aws_rds, aws_ebs_summary, aws_service_quotas, aws_rightsizing_hints, and the composed aws_executive_brief](/images/articles/2026-08-16-secure-sandbox-substrates-kagent-aws/ui-tool-calls-reconstructed.png)
-
-*The agent's whole world: eleven named, read-mostly tools. Describe, Get, View, List — nothing that creates, terminates, or deletes.*
+The tools themselves are a curated, read-mostly catalog — eleven named tools, all Describe/Get/View/List. There is **no generic "run any AWS CLI" tool**, the single most important design decision in the whole demo:
 
 | Tool | AWS API (typical) |
 |------|-------------------|
