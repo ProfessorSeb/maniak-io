@@ -52,5 +52,9 @@ theme = "bond"
   tag = "tags"
   category = "categories"
 
+# Full-text RSS for Substack and other readers. Home JSON is unchanged.
+rssLimit = 200
+
 [outputs]
-  home = ["HTML", "JSON"]
+  home = ["HTML", "RSS", "JSON"]
+  section = ["HTML", "RSS"]
