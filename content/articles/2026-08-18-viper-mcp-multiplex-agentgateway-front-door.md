@@ -1,7 +1,7 @@
 ---
 title: "One Front Door for Every Tool: MCP Multiplexing Through agentgateway"
 date: 2026-08-18
-description: "As soon as you have more than one MCP server, you have a sprawl problem: every laptop and IDE ends up holding credentials to FortiGate, F5, cEOS, AWS, ServiceNow, and GCP. This article walks a real fix on Viper — a single agentgateway front door at /mcp that multiplexes seven in-cluster MCP servers into one endpoint (185 tools), with FailOpen resilience, Conditional tool-name prefixing, secrets kept in Vault, and Grok Bot as the one governed client. Includes the live AgentgatewayBackend YAML, the fan-out diagram, and why one door is safer than many."
+description: "As soon as you have more than one MCP server, you have a sprawl problem: every laptop and IDE ends up holding credentials to FortiGate, F5, cEOS, AWS, ServiceNow, and GCP. This article walks a real fix on Viper — a single agentgateway front door at /mcp that multiplexes seven in-cluster MCP servers into one endpoint (185 tools), with FailOpen resilience, Conditional tool-name prefixing, secrets kept in Vault, and Grok Bot as the one governed client. Includes the live AgentgatewayBackend YAML, the fan-out diagram, the wire-level tool-call sequence (prefix stripped in, Vault stays in the pod), an honest list of what isn't wired yet, and why one door is safer than many."
 ---
 
 Here is a problem you don't have with one MCP server, and can't avoid with six.
@@ -97,7 +97,41 @@ An `HTTPRoute` named `viper-mcp` attaches that backend to the `agentgateway-prox
 
 *The `viper-mcp` backend and route sit next to the existing `openai` and desktop routes — one Gateway, many front doors.*
 
-The whole thing is a handful of YAML in git (`platform/agentgateway-ai/backend-viper-mcp.yaml` and `httproute-viper-mcp.yaml`). No new gateway, no new ingress — just one more backend on a proxy that was already there.
+The whole thing is a handful of YAML in git (`platform/agentgateway-ai/backend-viper-mcp.yaml` and `httproute-viper-mcp.yaml`). No new gateway, no new ingress — just one more backend on a proxy that was already there. And it's *the same* proxy that fronts the models: `/v1` (gpt-5.5), `/spark` (Qwen), and `/desktop` all live on this listener too. MCP is one more path on it, not a second box.
+
+## What a tool call actually does
+
+The two behaviors above are easiest to understand by following a single request from `initialize` to answer. Here's a client asking for FortiGate policies:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Grok Bot / Cursor
+  participant G as agentgateway<br/>:30100/mcp
+  participant P as fortigate-mcp
+  participant T as FortiGate 172.16.10.1
+
+  C->>G: initialize (Streamable HTTP)
+  G-->>C: serverInfo — agentgateway 1.4.1
+  C->>G: tools/list
+  G->>P: list (and the other six, FailOpen)
+  P-->>G: fg_list_policies …
+  G-->>C: fortigate_fg_list_policies …
+  C->>G: tools/call fortigate_fg_list_policies
+  G->>P: strip prefix → fg_list_policies
+  Note over P: Vault token is already in the pod
+  P->>T: FortiOS REST
+  T-->>P: policies
+  P-->>G: result
+  G-->>C: result
+```
+
+Two moments on that diagram carry the whole design:
+
+- **On the way in (step 7), the prefix is stripped.** The client calls `fortigate_fg_list_policies`; the gateway routes on the `fortigate_` prefix, removes it, and hands the backend the plain `fg_list_policies` it actually implements. Namespacing is a gateway concern, invisible to the MCP server.
+- **The credential never moves.** The FortiOS token was synced into the `fortigate-mcp` pod by ExternalSecret long before this request. The gateway doesn't inject it, doesn't see it, and the client never had it. The secret's blast radius is one pod.
+
+One more nuance worth stating: the kagent UI uses this *same* Gateway for the **model** (`/v1` → gpt-5.5), but its SandboxAgents reach their tools over ClusterIP directly — they **skip** the gateway for tool calls. The `/mcp` front door exists for interactive clients like Grok Bot and Cursor, not for the in-cluster agents.
 
 ## Why one door is *safer* than many
 
@@ -109,6 +143,21 @@ It's tempting to read "central endpoint" as "central risk." It's the opposite, a
 - **The public surface stays documentation-only.** The lab's public site and GitHub Pages carry docs; the tool plane (`:30100`) and the kagent UI (`:30500`) are never published there.
 
 Contrast that with the sprawl diagram: six protocols implemented in a dozen editors, each holding long-lived secrets. Centralizing the *tool plane* behind one governed proxy shrinks the credential footprint from "everywhere" to "one namespace, backed by Vault."
+
+### What it does — and what it doesn't, yet
+
+It's worth being precise about which of these properties are *wired today* versus which are the gateway's potential. On this lab, right now, the gateway is doing exactly six jobs:
+
+| Job | How it shows up here |
+|-----|----------------------|
+| Single front door | One `agentgateway-proxy` for models, MCP, and desktop — not a second proxy |
+| MCP multiplex | Seven Streamable HTTP targets behind one `/mcp` URL |
+| Name isolation | `prefixMode: Conditional` → `fortigate_fg_…`, `arista-ceos_…` |
+| Partial failure | `failureMode: FailOpen` — a dead budget MCP doesn't hide FortiGate tools |
+| Hide ClusterIP | Clients never need `fortigate-mcp.kagent:8084`, only `:30100` |
+| Keep secrets in Vault | The gateway injects no device or cloud keys; the MCP pods already hold ExternalSecrets |
+
+And, just as importantly, what is **not** wired yet — so nobody mistakes this lab for a hardened deployment: there is **no client auth on `/mcp`** (it's LAN, no bearer, same posture as `/spark`), **no tool-level allow lists**, and **no public-internet exposure**. Anything on the LAN that can reach `:30100` can call these tools. That's an acceptable trade for a LAN lab; it would not be for production, and the honest move is to name it rather than imply a security boundary that isn't there.
 
 ## Using it: Grok Bot as the governed client
 
