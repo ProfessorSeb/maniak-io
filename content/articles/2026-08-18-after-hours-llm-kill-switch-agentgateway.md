@@ -1,48 +1,51 @@
 ---
-title: "The After-Hours Kill Switch: Governing LLM Egress with One CEL Expression"
+title: "The After-Hours Kill Switch: Daytime Claude, Nighttime Grok, One CEL Expression"
 date: 2026-08-18
-description: "Where your LLM traffic goes — which provider, which model — is usually hardcoded in every client, so changing it means redeploying all of them. This standalone agentgateway 1.4.x demo moves that decision into the gateway as policy: clients ask for GPT, Claude, or Grok by a public name, and a CEL expression on each virtual model keeps the premium cloud only during daytime production hours, collapsing everything else to a single xAI Grok fallback. We walk the virtual-model routing, the exact CEL, the UTC timezone footgun, why internal-visibility upstreams make the switch un-bypassable, and how one config flips an entire fleet's model egress with no client redeploy."
+description: "During the workday you want Claude's quality. After 7pm you don't want that bill. This standalone agentgateway 1.4.x demo puts that decision in the gateway, not your app: clients always send the same public model name — claude — and a CEL expression on the virtual model routes to Anthropic during daytime Toronto hours and silently rewrites to xAI Grok after hours. We walk the virtual-model routing, the exact CEL, the UTC timezone footgun, why internal-visibility upstreams make the switch un-bypassable, and show the live admin UI proving a 7:11pm request served Grok. Includes the config and the four live screenshots."
 ---
 
-Ask where your LLM traffic actually goes and the honest answer is usually "it depends which client you look at." One service is pinned to GPT-4o. Another hardcodes Claude. A third points at whatever base URL someone set in an env var eight months ago. The routing decision — *which provider, which model, under what conditions* — is scattered across a dozen codebases, and changing it means a dozen redeploys.
+Here's a decision every team using premium models eventually faces, usually after reading a bill: *the expensive model is worth it during the workday, and it very much is not worth it at 2 a.m. for a batch job nobody is watching.* Claude's quality earns its price when a human is in the loop. Overnight, a cheaper, faster model is fine — and the difference, multiplied across every off-hours request, is real money.
 
-That's fine until the day you need to change it **all at once, now**: costs spike overnight, a provider has an incident, a compliance rule says non-production traffic shouldn't hit a premium cloud after hours. At that moment you don't want to open twelve repos. You want **one switch**.
+The naive fix is an `if` statement in every client: check the hour, pick a model. Now that logic lives in a dozen codebases, each with its own idea of "after hours," each needing a redeploy to change. The better fix is to make the client dumb and the **gateway** smart: let every app always ask for the same model by name, and let one policy decide where that request actually goes.
 
-This is a walk through a small, complete [agentgateway](https://agentgateway.dev) demo — [`12-after-hours-kill-switch`](https://github.com/sebbycorp/agentgateway-demos/tree/main/12-after-hours-kill-switch) — that builds exactly that switch. Clients hit one OpenAI-compatible URL and ask for a model by a friendly public name. The gateway decides where the request *really* goes, based on live conditions, and keeps the premium cloud only when it should. Everything else is rewritten to a single fallback. It's a kill switch for your model egress, and it lives entirely in config.
+This is a walk through a small, complete [agentgateway](https://agentgateway.dev) demo — [`12-after-hours-kill-switch`](https://github.com/sebbycorp/agentgateway-demos/tree/main/12-after-hours-kill-switch) — that does exactly that. Clients always send `"model": "claude"`. During daytime Toronto hours the gateway routes to Anthropic's Claude Sonnet. After 7pm it silently rewrites every one of those requests to xAI's Grok, until 8am. Same URL, same model name, no SDK change, no cron, no client-side clock check. The switch is a single CEL expression in config.
 
-## The idea: clients ask, the gateway decides
+## The idea: the client asks, the gateway decides
 
-The whole demo turns on one inversion of control. Clients don't name a provider — they name an **intent**: `gpt-4o-mini`, `claude-sonnet`, or `grok`. Those are *public virtual models*. What each one resolves to is the gateway's decision, re-evaluated on every request.
+The whole demo turns on one inversion of control. The client doesn't name a provider — it names an **intent**: `claude`. That's a *public virtual model*. What it resolves to is the gateway's decision, re-evaluated on every single request.
 
 ```mermaid
 flowchart TB
-  c["Client<br/>POST /v1/chat/completions<br/>model: gpt-4o-mini"]
-  g["agentgateway :4000<br/>virtual model 'gpt-4o-mini'"]
-  cond{"x-env == prod<br/>AND daytime (UTC)<br/>AND not forced off?"}
-  cloud["OpenAI gpt-4o-mini"]
-  grok["xAI grok-4.6<br/>(the fallback)"]
+  c["Client<br/>POST /v1/chat/completions<br/>model: claude"]
+  g["agentgateway :4000<br/>virtual model 'claude'"]
+  cond{"daytime in Toronto?<br/>(and not forced off)"}
+  cloud["Anthropic<br/>claude-sonnet-4-6"]
+  grok["xAI<br/>grok-4.6"]
   c --> g --> cond
-  cond -->|"yes — keep the cloud"| cloud
-  cond -->|"no — kill switch"| grok
+  cond -->|"yes — daytime quality"| cloud
+  cond -->|"no — after-hours kill switch"| grok
   style g fill:#FFFFFF,stroke:#E5341F,color:#17181C
   style cond fill:#FFF7D6,stroke:#E5341F,color:#17181C
   style cloud fill:#F1EFE9,stroke:#17181C,color:#17181C
   style grok fill:#F1EFE9,stroke:#17181C,color:#17181C
 ```
 
-During daytime production, `gpt-4o-mini` really means OpenAI and `claude-sonnet` really means Anthropic. Outside that window — nights, non-prod, or a manual override — *every* public name collapses to xAI's `grok-4.6`. Same URL, same client code, completely different destination. The client never knows, and never needs to.
+The application code never changes between noon and midnight. It always sends `claude`. The gateway is the only thing that knows there are two backends behind that name — and which one is in force right now.
 
-## How it's built: virtual models + conditional routing + CEL
+You can see the shape of it in the standalone admin UI's overview: LLM enabled, **one virtual model** in front of **two backend models**, backed by **two shared providers**.
 
-agentgateway's standalone `llm` mode has three moving parts here, and they compose cleanly.
+![agentgateway admin UI Gateway Overview: LLM enabled with 2 models, 1 virtual model, 2 shared providers; MCP not enabled; Traffic enabled with 1 gateway](/images/articles/2026-08-18-after-hours-llm-kill-switch-agentgateway/agw-ui-home.png)
 
-**Providers** hold the credentials, once:
+*The standalone admin UI at `:15000/ui/` — one virtual model, two backends, two providers. MCP isn't part of this demo; it's pure LLM routing.*
+
+## How it's built: virtual model + conditional routing + CEL
+
+Three pieces of `config.yaml` compose the switch.
+
+**Providers** hold the credentials, once — just the two this demo needs:
 
 ```yaml
 providers:
-  - name: openai
-    provider: openAI
-    params: { apiKey: "$OPENAI_API_KEY" }
   - name: anthropic
     provider: anthropic
     params: { apiKey: "$ANTHROPIC_API_KEY" }
@@ -51,47 +54,51 @@ providers:
     params: { apiKey: "$XAI_API_KEY" }
 ```
 
-**Concrete models** are the real upstreams — and, crucially, they're marked `visibility: internal`:
+**Concrete models** are the real upstreams — and, crucially, both are `visibility: internal`:
 
 ```yaml
 models:
-  - name: openai-gpt-4o-mini
+  - name: anthropic-claude
     visibility: internal
-    provider: { reference: openai }
-    params: { model: gpt-4o-mini }
+    provider: { reference: anthropic }
+    params: { model: claude-sonnet-4-6 }
   - name: xai-grok
     visibility: internal
     provider: { reference: xai }
     params: { model: grok-4.6 }
-  # …anthropic-claude-sonnet likewise
 ```
 
-**Virtual models** are the public names, each routing *conditionally* to a concrete model. The routing is a list of `when` expressions written in [CEL](https://agentgateway.dev/docs/standalone/latest/reference/cel/), evaluated top to bottom — **first match wins**:
+**The virtual model** `claude` is the only public name, and it routes *conditionally*. Its `routing.conditional.targets` are a list of [CEL](https://agentgateway.dev/docs/standalone/latest/reference/cel/) `when` expressions, evaluated top to bottom — **first match wins**:
 
 ```yaml
 virtualModels:
-  - name: gpt-4o-mini
+  - name: claude
     routing:
       conditional:
         targets:
-          - model: openai-gpt-4o-mini
+          - model: anthropic-claude
             when: |
-              default(request.headers["x-env"], "") == "prod"
-              && default(request.headers["x-force-after-hours"], "") != "true"
+              default(request.headers["x-force-after-hours"], "") != "true"
               && timestamp(request.startTime).getHours() >= 12
               && timestamp(request.startTime).getHours() < 23
           - model: xai-grok
             when: "true"      # the fallback — always matches
 ```
 
-Read that as a policy sentence: *keep OpenAI only if the caller says it's prod, hasn't forced the switch, and it's inside the daytime UTC window; otherwise fall through to Grok.* The final `when: "true"` is the kill switch's safety net — it always matches, so there is never a request that fails to route somewhere.
+Read it as a policy sentence: *use Anthropic only if nobody forced the switch and it's inside the daytime UTC window; otherwise fall through to Grok.* That final `when: "true"` is the safety net — it always matches, so no request ever fails to route somewhere.
+
+The admin UI renders the same structure: two backend models with no policy, and the `claude` virtual model marked **conditional** with **2 rules**.
+
+![agentgateway LLM Models list: anthropic-claude → claude-sonnet-4-6 (policy none), xai-grok → grok-4.6 (policy none), and claude marked Virtual with '2 rules' and policy state 'conditional'](/images/articles/2026-08-18-after-hours-llm-kill-switch-agentgateway/agw-ui-models.png)
+
+*`claude` is a Virtual model with a Conditional policy (2 rules). The two concrete backends carry no policy of their own — the routing lives entirely on the virtual name.*
 
 ```mermaid
 flowchart LR
-  pub["Public name<br/>gpt-4o-mini"]
-  t1{"target 1<br/>when: prod &amp; daytime &amp; not forced"}
+  pub["Public name<br/>claude"]
+  t1{"target 1<br/>when: daytime &amp; not forced"}
   t2["target 2<br/>when: true"]
-  m1["openai-gpt-4o-mini<br/>(internal)"]
+  m1["anthropic-claude<br/>(internal)"]
   m2["xai-grok<br/>(internal)"]
   pub --> t1
   t1 -->|match| m1
@@ -104,58 +111,64 @@ flowchart LR
 
 ## Why the switch can't be dodged
 
-Here's the detail that turns a routing trick into a *control*: the concrete models are `visibility: internal`. A client cannot send `"model": "openai-gpt-4o-mini"` to skip the conditional and reach OpenAI directly — internal models aren't addressable from outside. The only doors into the gateway are the public virtual names, and every one of them runs the CEL gauntlet first.
+Here's the detail that turns a routing trick into a *control*: both concrete models are `visibility: internal`. A client cannot send `"model": "anthropic-claude"` to force Claude at 3 a.m., and cannot name `xai-grok` either — internal models aren't addressable from outside. The only door into the gateway is the public name `claude`, and it always runs the CEL gauntlet first.
 
-That's the difference between a convenience and a guardrail. If clients could name the real upstream, "after-hours kill switch" would be a suggestion. Because they can't, it's enforced.
+That's the difference between a convenience and a guardrail. If clients could name the real upstream, "after-hours kill switch" would be a polite suggestion. Because they can't, it's enforced.
 
 ## The timezone footgun (read this before you copy the CEL)
 
 The one thing that trips everyone up: `timestamp(request.startTime).getHours()` returns the hour in **UTC**, not your local time. The demo's business hours are America/Toronto, which in August 2026 is EDT (UTC−4), so the config translates the intended local window into UTC:
 
-| Local (America/Toronto) | UTC `getHours()` | If `x-env: prod` |
+| Local (America/Toronto) | UTC `getHours()` | Served |
 |---|---|---|
-| Daytime `08:00`–`18:59` | `12`–`22` | Keep GPT / Claude / Grok as requested |
-| After-hours `19:00`–`07:59` | `23`–`11` | Rewrite to xAI `grok-4.6` |
+| Daytime `08:00`–`18:59` | `12`–`22` | Anthropic `claude-sonnet-4-6` |
+| After-hours `19:00`–`07:59` | `23`–`11` | xAI `grok-4.6` |
 
-That's why the CEL reads `>= 12 && < 23` rather than `>= 8 && < 19`. If you lift this pattern, convert your own local window to UTC — and remember it drifts by an hour across DST, so the boundaries you hardcode in August aren't the ones you want in January. (The admin UI at `:15000/ui/` has a CEL playground for checking a `when` expression against a sample request when the boundaries misbehave.)
+That's why the CEL reads `>= 12 && < 23` rather than `>= 8 && < 19`. If you lift this pattern, convert your own local window to UTC — and remember it drifts by an hour across DST, so the boundaries you hardcode in August aren't the ones you want in January.
 
-## What each request does
+## Proof: a 7:11pm request served Grok
 
-The behavior is easiest to see as a truth table. All five of these calls hit the identical URL — only headers and time change:
+This is the moment the switch fires. A client asked for `claude` with **no extra headers** at **7:11pm Toronto** — past the 7pm cutoff — and the gateway served **`grok-4.6`**:
 
-| Client sends | Header | Time | Resolves to |
-|---|---|---|---|
-| `gpt-4o-mini` | `x-env: prod` | daytime | OpenAI `gpt-4o-mini` |
-| `claude-sonnet` | `x-env: prod` | daytime | Anthropic `claude-sonnet-4-6` |
-| `grok` | `x-env: prod` | daytime | xAI `grok-4.6` |
-| `gpt-4o-mini` | *(no `x-env`)* or `x-env: workshop` | any | xAI `grok-4.6` |
-| `gpt-4o-mini` | `x-env: prod` + `x-force-after-hours: true` | any | xAI `grok-4.6` |
+![After-hours kill switch live test card: asked for model claude with no extra headers; Toronto time 2026-08-18 19:11 UTC-04:00; gateway served grok-4.6; reply 'ok'; POST to 127.0.0.1:4000](/images/articles/2026-08-18-after-hours-llm-kill-switch-agentgateway/agw-live-test.png)
 
-Three levers, any one of which flips the switch:
+*Live, 2026-08-18 at 19:11 Toronto. Client sent `claude`; the JSON `model` field came back `grok-4.6`. The rewrite is invisible to the caller — only the response body reveals it.*
 
-- **Environment** — only `x-env: prod` is eligible for the cloud. Missing header, `workshop`, anything non-prod → Grok. Non-production traffic simply never reaches the premium providers.
-- **Time** — outside the daytime UTC window, prod traffic still falls back. The expensive clouds are "open for business" only during business hours.
-- **The manual override** — `x-force-after-hours: true` forces Grok at any hour, from any environment. That's your break-glass: one header proves the fallback works, or pulls the plug during an incident without waiting for the clock.
+There's a subtlety worth calling out, visible in the admin UI's Chat Playground: the playground labels the request with the **public** name `claude` even on a call that Grok actually served. The rewrite isn't in the label — it's in the response's `model` field.
 
-You can drive all five against a running gateway with the demo's `./demo.sh`; each response's `"model"` field tells you where the switch actually sent it.
+![agentgateway Chat Playground: model selector set to 'claude', a 'Reply with exactly: ok' prompt, and an 'ok' response chip labeled claude, 1.4s, 220 in / 1 out](/images/articles/2026-08-18-after-hours-llm-kill-switch-agentgateway/agw-ui-playground.png)
+
+*The Playground always shows the public name `claude`. To see which backend served a call, read the `model` field in the response JSON (`claude-sonnet-4-6` = Anthropic, `grok-4.6` = xAI) — or `gen_ai.provider.name` in the gateway log.*
+
+To demonstrate the night path without waiting until 7pm, the config honors one break-glass header — `x-force-after-hours: true` — which forces Grok at any hour:
+
+```sh
+curl -s http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "x-force-after-hours: true" \
+  -d '{"model":"claude","messages":[{"role":"user","content":"Reply with exactly: ok"}],"max_tokens":16}' \
+  | jq '{model, content: .choices[0].message.content}'
+```
+
+At noon that returns `grok-4.6` instead of `claude-sonnet-4-6` — the same rewrite the clock would trigger at night, on demand.
 
 ## Why this is worth doing
 
 Step back from the specifics and the pattern is a small piece of platform governance with an outsized payoff:
 
-- **One switch, whole fleet.** Every client that speaks OpenAI-compatible HTTP is governed by this one config. Changing the after-hours destination — or the window, or which environments qualify — is a config edit, not a fleet-wide redeploy.
-- **Cost control on a clock.** Premium cloud models cost real money per token. Confining them to production business hours, and defaulting everything else to a single cheaper fallback, is a lever you can actually pull without asking a dozen teams to change code.
-- **Provider-agnostic clients.** Application code names an intent (`claude-sonnet`), not a vendor. Swapping the upstream, adding a failover, or retiring a model id happens in the gateway — the demo even notes it pins `grok-4.6` because xAI retired the older `grok-2-latest` the docs still show. Clients never noticed.
+- **One switch, whole fleet.** Every client that speaks OpenAI-compatible HTTP is governed by this one config. Changing the after-hours destination — or the window — is a config edit, not a fleet-wide redeploy.
+- **Cost control on a clock.** Premium models cost real money per token. Confining Claude to business hours and defaulting off-hours traffic to a cheaper model is a lever you can pull without asking a dozen teams to touch code.
+- **Provider-agnostic clients.** Application code names an intent (`claude`), not a vendor. Swapping the upstream, adding a failover, or retiring a model id happens in the gateway — the demo even pins `grok-4.6` because xAI retired the older `grok-2-latest` the docs still show. Clients never noticed.
 - **Enforced, not advisory.** Internal-visibility upstreams mean the policy is a wall, not a naming convention. There's no client-side flag to disrespect.
 
-The honest scope: this is a standalone lab demo of *routing* governance. The `/v1` listener here has no client auth (it's a local demo, same posture as the other `00-standalone` examples), and the "kill switch" governs *which model* a request reaches, not *whether the caller is allowed* — that's a separate policy layer. What it demonstrates cleanly is the principle: the decision of where model traffic goes belongs in the gateway, expressed as policy, re-evaluated per request.
+The honest scope: this is a standalone lab demo of *routing* governance. The `/v1` listener here has no client auth (it's a local demo), and the "kill switch" governs *which model* a request reaches, not *whether the caller is allowed* — that's a separate policy layer. What it demonstrates cleanly is the principle: the decision of where model traffic goes belongs in the gateway, expressed as policy, re-evaluated per request.
 
 ## The takeaway
 
-A kill switch is only useful if it's in one place and someone can actually reach it. Scattering model-selection logic across every client gives you neither. Pulling it into agentgateway as a handful of virtual models and CEL expressions gives you both: a single, enforced, per-request decision about where your LLM traffic goes — flippable by a clock, an environment header, or one break-glass flag, with not a single client redeploy.
+A kill switch is only useful if it lives in one place and someone can actually reach it. Scattering model-selection logic across every client gives you neither. Pulling it into agentgateway as one virtual model and one CEL expression gives you both: a single, enforced, per-request decision about where your LLM traffic goes — flippable by the clock or one break-glass header, with not a single client redeploy.
 
-Business hours, premium clouds. After hours, one fallback. One line of CEL decides — and the clients never have to know.
+Business hours, Claude. After hours, Grok. Same `claude` every time — and the clients never have to know which one answered.
 
 ---
 
-*Full config, the five curl cases, and the run scripts are in [sebbycorp/agentgateway-demos / 12-after-hours-kill-switch](https://github.com/sebbycorp/agentgateway-demos/tree/main/12-after-hours-kill-switch). Background on virtual models and conditional routing is in the [agentgateway standalone docs](https://agentgateway.dev/docs/standalone/latest/llm/virtual-models/).*
+*Full config, the curl cases, the run scripts, and the live screenshots are in [sebbycorp/agentgateway-demos / 12-after-hours-kill-switch](https://github.com/sebbycorp/agentgateway-demos/tree/main/12-after-hours-kill-switch). Background on virtual models and conditional routing is in the [agentgateway standalone docs](https://agentgateway.dev/docs/standalone/latest/llm/virtual-models/).*
